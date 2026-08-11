@@ -1722,6 +1722,7 @@ void App::duplicatePlane() {
     pushUndo();
     const int at = scene.active + 1;
     scene.planes.insert(scene.planes.begin() + at, scene.planes[scene.active]);
+    scene.planes[at].name.clear();  // la copie reprend le nom par défaut « Plan n »
     scene.active = at;
     clearSelection();
     triP1 = triP2 = -1;
@@ -1741,7 +1742,6 @@ void App::renameActivePlane(const std::string& name) {
     if (clean == scene.planes[scene.active].name) return;  // inchangé
     pushUndo();
     scene.planes[scene.active].name = clean;
-    dirty = true;
     dlgRenameOpen = false;
     setStatus("Plan renommé : « " +
               (clean.empty()

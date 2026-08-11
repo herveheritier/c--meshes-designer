@@ -59,6 +59,22 @@ std::string planeLabel(const App& app, int i) {
     return "Plan " + std::to_string(i + 1);
 }
 
+// Ouvre la fenêtre d'enregistrement avec le nom pré-rempli : nom courant de la
+// scène, ou dernier emplacement utilisé si la scène est sans nom.
+void openSaveDialog(App& app) {
+    app.dlgSaveOpen = true;
+    if (app.sceneName.empty()) {
+        if (!app.saveLocations.empty())
+            std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
+                          app.saveLocations.front().c_str());
+        else
+            app.dlgSaveName[0] = '\0';
+    } else {
+        std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
+                      app.sceneName.c_str());
+    }
+}
+
 std::string zoomText(float mult) {
     char buf[32];
     if (std::fabs(mult - std::round(mult)) < 0.01f)
@@ -226,6 +242,37 @@ void handleShortcuts(App& app) {
         return;
     }
 
+    // Ctrl+0 : réinitialisation du zoom (valable partout, y compris en
+    // prévisualisation — c'est une navigation de vue).
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_0)) {
+        app.camera.zoom = 40.0f;
+        app.camera.cx = 0.0f;
+        app.camera.cy = 0.0f;
+        app.rotDeg = 0.0f;
+        app.setStatus("Zoom 100 % recentré sur l'origine, angle de rotation remis à zéro (Ctrl+0)");
+    }
+
+    // En prévisualisation (9.3), aucune édition n'est possible : seuls la
+    // navigation de la vue (Accueil, Ctrl+F, Ctrl+0) et la sortie (Échap, P,
+    // Ctrl+S) restent actives — aucun raccourci ne modifie la géométrie.
+    if (app.preview != PreviewMode::Off) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) app.exitPreview();
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) app.cyclePreview();
+        if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
+            app.frameView();
+            app.setStatus("Tout afficher : zoom automatique sur la scène entière (Accueil)");
+        }
+        if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F)) {
+            app.frameSelection();
+            app.setStatus("Cadrer la sélection : zoom automatique (Ctrl+F)");
+        }
+        if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S)) {
+            app.exitPreview();
+            openSaveDialog(app);
+        }
+        return;
+    }
+
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         if (app.dlgHelpOpen) app.dlgHelpOpen = false;
         else app.onEscape();
@@ -248,25 +295,7 @@ void handleShortcuts(App& app) {
     if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_X)) app.cutSelection();
     if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_V)) app.pasteClipboard();
     if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        if (app.preview != PreviewMode::Off) app.exitPreview();
-        app.dlgSaveOpen = true;
-        if (app.sceneName.empty()) {
-            if (!app.saveLocations.empty())
-                std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                              app.saveLocations.front().c_str());
-            else
-                app.dlgSaveName[0] = '\0';
-        } else {
-            std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                          app.sceneName.c_str());
-        }
-    }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_0)) {
-        app.camera.zoom = 40.0f;
-        app.camera.cx = 0.0f;
-        app.camera.cy = 0.0f;
-        app.rotDeg = 0.0f;
-        app.setStatus("Zoom 100 % recentré sur l'origine, angle de rotation remis à zéro (Ctrl+0)");
+        openSaveDialog(app);
     }
 
     // --- Sélection ---
@@ -635,26 +664,15 @@ void toolbar(App& app) {
 
     // --- Groupe 3 : sauvegarde ---
     if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S) — fenêtre d'emplacement",
-                    false, kGreen, false)) {
-        app.dlgSaveOpen = true;
-        if (app.sceneName.empty()) {
-            if (!app.saveLocations.empty())
-                std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                              app.saveLocations.front().c_str());
-            else
-                app.dlgSaveName[0] = '\0';
-        } else {
-            std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                          app.sceneName.c_str());
-        }
-    }
+                    false, kGreen, false))
+        openSaveDialog(app);
     ImGui::SameLine();
     if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
                     false, kGreen, false))
         app.dlgSvgOpen = true;
     ImGui::SameLine();
-    if (toolBtnIcon("export", "Exporter l'image de la vue actuelle en PNG "
-                                "(édition ou prévisualisation, sans l'interface)",
+    if (toolBtnIcon("image", "Exporter l'image de la vue actuelle en PNG "
+                              "(édition ou prévisualisation, sans l'interface)",
                     false, kGreen, false))
         app.dlgPngOpen = true;
     ImGui::SameLine();
@@ -1267,10 +1285,11 @@ void helpWindow(App& app) {
         ImGui::BulletText("Ctrl+M : outil mesure (2 clics : distance au HUD) · Alt+D : dupliquer le plan actif");
         ImGui::BulletText("Maj+G : aimantation sur la grille sans son affichage (ou l'inverse)");
         ImGui::BulletText("Alt+R : rotation précise (saisie d'un angle)");
+        ImGui::BulletText("Flèches : déplacer la sélection d'un pas de grille · Maj : ×5 (une salve = une étape annulable)");
         ImGui::BulletText("? : cette aide · Échap : quitter le mode en cours");
         ImGui::BulletText("Alt+← / Alt+→ : aligner X / Y · Alt+Maj+←/→ : répartir X / Y");
         ImGui::BulletText("Alt+↑ / Alt+↓ : monter / descendre le plan actif (empilement)");
-        ImGui::BulletText("Alt+K : kiosque de sélection des plans (au moins 2 plans)");
+        ImGui::BulletText("Alt+K : kiosque de sélection des plans (au moins 2 plans — flèches ←/→ pour naviguer)");
         ImGui::Separator();
         ImGui::TextUnformatted("Souris");
         ImGui::BulletText("Clic gauche (vide) : poser un point — 3 clics ferment un triangle");
@@ -1279,12 +1298,13 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");
-        ImGui::BulletText("PNG (bouton de la barre d'outils ou de la prévisualisation) : exporter la vue actuelle en image");
+        ImGui::BulletText("PNG (icône image de la barre d'outils ou de la prévisualisation) : exporter la vue actuelle en image");
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
         ImGui::BulletText("Bouton Aimant de la barre d'outils : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
+        ImGui::BulletText("Bouton Renommer (crayon, groupe plans) : nommer le plan actif — nom affiché au kiosque et au HUD");
         ImGui::BulletText("Historique (barre d'outils) : versions horodatées de l'autosave — restaurer un état antérieur");
         ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
         ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
@@ -1319,7 +1339,7 @@ void previewButton(App& app) {
         true, planes ? kAmber : kGreen, false, planes ? "Plans" : "Aperçu");
     ImGui::SameLine();
     const bool pngClicked = toolBtnIcon(
-        "export", "Exporter l'image actuelle en PNG (prévisualisation)", false, kGreen,
+        "image", "Exporter l'image actuelle en PNG (prévisualisation)", false, kGreen,
         false, "PNG");
     ImGui::PopFont();
     if (clicked) app.cyclePreview();
@@ -1942,17 +1962,7 @@ void quitDialog(App& app) {
         if (toolBtnIcon("export", "Enregistrer la scène puis quitter (Ctrl+S)", false,
                         kGreen, false, "Enregistrer", 150.0f)) {
             app.dlgQuitOpen = false;
-            app.dlgSaveOpen = true;
-            if (app.sceneName.empty()) {
-                if (!app.saveLocations.empty())
-                    std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                                  app.saveLocations.front().c_str());
-                else
-                    app.dlgSaveName[0] = '\0';
-            } else {
-                std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
-                              app.sceneName.c_str());
-            }
+            openSaveDialog(app);
         }
         ImGui::SameLine();
         if (toolBtnIcon("close", "Quitter sans enregistrer", false, kRed, false,
