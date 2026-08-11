@@ -393,13 +393,37 @@ void toolbar(App& app) {
         app.setStatus(app.snapOn ? "Aimantation activée (clic droit — Maj+G)"
                                  : "Aimantation désactivée (clic droit — Maj+G)");
     }
+    // Badge « aimant barré » rouge sur le coin du bouton Grille quand
+    // l'aimantation est désactivée (même technique que le cadenas de fusion).
+    if (!app.snapOn) {
+        const ImVec2 bmin = ImGui::GetItemRectMin();
+        const ImVec2 bmax = ImGui::GetItemRectMax();
+        drawSvgIconNamed(ImGui::GetWindowDrawList(), "magnet-off",
+                         ImVec2(bmax.x - 12.0f, bmin.y + 1.0f), 11.0f,
+                         IM_COL32(255, 130, 120, 255));
+    }
     ImGui::SameLine();
-    // Valeur du pas de grille à largeur FIXE (100.00 au maximum) : le texte ne
-    // fait pas bouger les boutons suivants quand la valeur change.
+    // Cellule du pas de grille à largeur FIXE : sert aussi d'INDICATEUR
+    // d'aimantation. Active : valeur normale (gris). Désactivée : icône
+    // « aimant barré » rouge + valeur en ambre — sans décaler la barre.
     {
         char stepbuf[16];
         std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
-        valueLabel(stepbuf, ImGui::CalcTextSize("100.00").x);
+        const float cellW = ImGui::CalcTextSize("100.00").x + 16.0f;  // réserve l'icône
+        ImGui::Dummy(ImVec2(cellW, btnFrameHeight()));
+        const ImVec2 cmin = ImGui::GetItemRectMin();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 ts = ImGui::CalcTextSize(stepbuf);
+        const float cy = cmin.y + btnFrameHeight() * 0.5f;
+        const float iconW = app.snapOn ? 0.0f : 16.0f;
+        float cx = cmin.x + (cellW - ts.x - iconW) * 0.5f;
+        if (!app.snapOn) {
+            drawSvgIconNamed(dl, "magnet-off", ImVec2(cx, cy - 7.0f), 14.0f,
+                             IM_COL32(245, 115, 105, 250));
+            cx += iconW;
+        }
+        dl->AddText(ImVec2(cx, cy - ts.y * 0.5f),
+                    app.snapOn ? kDimCol : IM_COL32(245, 190, 90, 245), stepbuf);
     }
     ImGui::SameLine();
     if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
