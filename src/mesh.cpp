@@ -1,0 +1,236 @@
+#include "mesh.h"
+#include "triangulate.h"
+
+#include <algorithm>
+
+namespace mesh {
+
+void Mesh2D::clear() {
+    vertices.clear();
+    faces.clear();
+}
+
+bool Mesh2D::empty() const { return vertices.empty() && faces.empty(); }
+
+// ---------------------------------------------------------------------------
+// Sommets
+// ---------------------------------------------------------------------------
+int Mesh2D::addVertex(const Vec2& p) {
+    vertices.push_back(p);
+    return (int)vertices.size() - 1;
+}
+
+void Mesh2D::moveVertex(int index, const Vec2& p) {
+    if (index >= 0 && index < (int)vertices.size()) vertices[index] = p;
+}
+
+bool Mesh2D::removeVertex(int index) {
+    if (index < 0 || index >= (int)vertices.size()) return false;
+
+    // 1. Retirer l'indice de toutes les boucles de faces.
+    for (Face& f : faces) {
+        for (int i = 0; i < (int)f.verts.size();) {
+            if (f.verts[i] == index)
+                f.verts.erase(f.verts.begin() + i);
+            else
+                ++i;
+        }
+    }
+    // 2. Supprimer les faces devenues dégénérées (< 3 sommets).
+    faces.erase(std::remove_if(faces.begin(), faces.end(),
+                               [](const Face& f) { return f.verts.size() < 3; }),
+                faces.end());
+    // 3. Remapper les indices restants.
+    for (Face& f : faces)
+        for (int& v : f.verts)
+            if (v > index) --v;
+    // 4. Retirer le sommet.
+    vertices.erase(vertices.begin() + index);
+    return true;
+}
+
+void Mesh2D::removeVertices(const std::vector<int>& indices) {
+    // Tri décroissant + suppression (les indices se remappent tout seuls).
+    std::vector<int> sorted = indices;
+    std::sort(sorted.begin(), sorted.end(), std::greater<int>());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    for (int i : sorted) removeVertex(i);
+}
+
+// ---------------------------------------------------------------------------
+// Faces
+// ---------------------------------------------------------------------------
+bool Mesh2D::validFace(const std::vector<int>& verts) const {
+    if ((int)verts.size() < 3) return false;
+    for (int v : verts)
+        if (v < 0 || v >= (int)vertices.size()) return false;
+    // Pas de doublon dans la boucle (un polygone simple).
+    std::vector<int> uniq = verts;
+    std::sort(uniq.begin(), uniq.end());
+    return std::adjacent_find(uniq.begin(), uniq.end()) == uniq.end();
+}
+
+int Mesh2D::addFace(const std::vector<int>& verts) {
+    if (!validFace(verts)) return -1;
+    Face f;
+    f.verts = verts;
+    faces.push_back(std::move(f));
+    return (int)faces.size() - 1;
+}
+
+int Mesh2D::addTriangulatedFace(const std::vector<int>& verts) {
+    if (!validFace(verts)) return -1;
+
+    // Points du polygone puis découpe en triangles (ear clipping).
+    std::vector<Vec2> pts;
+    pts.reserve(verts.size());
+    for (int v : verts) pts.push_back(vertices[v]);
+    std::vector<int> local;
+    if (!triangulatePolygon(pts, local) || local.empty()) return -1;  // dégénéré
+
+    // `local` contient des triplets d'indices dans `pts` : les traduire en
+    // indices de sommets globaux et créer une face par triangle.
+    int created = 0;
+    for (size_t i = 0; i + 2 < local.size(); i += 3) {
+        Face f;
+        f.verts = {verts[local[i]], verts[local[i + 1]], verts[local[i + 2]]};
+        faces.push_back(std::move(f));
+        ++created;
+    }
+    return created;
+}
+
+bool Mesh2D::removeFace(int index) {
+    if (index < 0 || index >= (int)faces.size()) return false;
+    faces.erase(faces.begin() + index);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Arêtes
+// ---------------------------------------------------------------------------
+std::vector<Mesh2D::Edge> Mesh2D::edges() const {
+    std::vector<Edge> out;
+    for (const Face& f : faces) {
+        const int n = (int)f.verts.size();
+        for (int i = 0; i < n; ++i)
+            out.push_back(normEdge(f.verts[i], f.verts[(i + 1) % n]));
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<std::pair<int, int>> Mesh2D::edgeOccurrences(int a, int b) const {
+    std::vector<std::pair<int, int>> occ;
+    for (int fi = 0; fi < (int)faces.size(); ++fi) {
+        const Face& f = faces[fi];
+        const int n = (int)f.verts.size();
+        for (int i = 0; i < n; ++i) {
+            const int va = f.verts[i];
+            const int vb = f.verts[(i + 1) % n];
+            if (va == a && vb == b) occ.emplace_back(fi, i);       // a suivi de b
+            else if (vb == a && va == b) occ.emplace_back(fi, (i + 1) % n);  // b suivi de a → position de a
+        }
+    }
+    return occ;
+}
+
+int Mesh2D::insertVertexOnEdge(int a, int b, float t) {
+    if (a < 0 || b < 0 || a >= (int)vertices.size() || b >= (int)vertices.size()) return -1;
+    const auto occ = edgeOccurrences(a, b);
+    if (occ.empty()) return -1;
+
+    t = std::clamp(t, 0.01f, 0.99f);
+    const Vec2 p = vertices[a] + (vertices[b] - vertices[a]) * t;
+    const int newIndex = addVertex(p);
+
+    // Insérer le nouveau sommet juste après `a` dans chaque boucle concernée.
+    for (const auto& [fi, posA] : occ)
+        faces[fi].verts.insert(faces[fi].verts.begin() + posA + 1, newIndex);
+    return newIndex;
+}
+
+bool Mesh2D::dissolveEdge(int a, int b) {
+    const auto occ = edgeOccurrences(a, b);
+    if (occ.empty()) return false;
+
+    // Retirer `b` des boucles : l'arête (a,b) s'effondre sur `a`.
+    for (const auto& [fi, posA] : occ) {
+        Face& f = faces[fi];
+        if ((int)f.verts.size() <= 3) continue;  // ne pas dégénérer un triangle
+        const int posB = (posA + 1) % (int)f.verts.size();
+        if (f.verts[posB] == b) f.verts.erase(f.verts.begin() + posB);
+    }
+    faces.erase(std::remove_if(faces.begin(), faces.end(),
+                               [](const Face& f) { return f.verts.size() < 3; }),
+                faces.end());
+
+    // Retirer le sommet b s'il n'est plus référencé.
+    bool used = false;
+    for (const Face& f : faces)
+        for (int v : f.verts)
+            if (v == b) { used = true; break; }
+    if (!used) removeVertex(b);
+    return true;
+}
+
+void Mesh2D::removeFacesSharingEdge(int a, int b) {
+    for (int i = (int)faces.size() - 1; i >= 0; --i) {
+        const Face& f = faces[i];
+        bool shares = false;
+        const int n = (int)f.verts.size();
+        for (int j = 0; j < n && !shares; ++j) {
+            const int va = f.verts[j];
+            const int vb = f.verts[(j + 1) % n];
+            if ((va == a && vb == b) || (va == b && vb == a)) shares = true;
+        }
+        if (shares) faces.erase(faces.begin() + i);
+    }
+}
+
+void Mesh2D::extrudeEdge(int a, int b, const Vec2& delta) {
+    if (a < 0 || b < 0 || a >= (int)vertices.size() || b >= (int)vertices.size()) return;
+    const int a2 = addVertex(vertices[a] + delta);
+    const int b2 = addVertex(vertices[b] + delta);
+    // Orientation du quad : l'intérieur est du côté de `delta` (enroulement CCW).
+    const Vec2 e = vertices[b] - vertices[a];
+    if (cross(e, delta) >= 0.0f)
+        addFace({a, b, b2, a2});
+    else
+        addFace({b, a, a2, b2});
+}
+
+// ---------------------------------------------------------------------------
+// Analyse
+// ---------------------------------------------------------------------------
+Vec2 Mesh2D::centroid() const {
+    Vec2 c;
+    if (vertices.empty()) return c;
+    for (const Vec2& v : vertices) { c.x += v.x; c.y += v.y; }
+    c.x /= (float)vertices.size();
+    c.y /= (float)vertices.size();
+    return c;
+}
+
+int Mesh2D::triangleCount() const {
+    int n = 0;
+    for (const Face& f : faces)
+        if ((int)f.verts.size() >= 3) n += (int)f.verts.size() - 2;
+    return n;
+}
+
+void Mesh2D::triangulated(std::vector<int>& tris) const {
+    tris.clear();
+    std::vector<int> local;
+    for (const Face& f : faces) {
+        if ((int)f.verts.size() < 3) continue;
+        std::vector<Vec2> pts;
+        pts.reserve(f.verts.size());
+        for (int v : f.verts) pts.push_back(vertices[v]);
+        triangulatePolygon(pts, local);
+        for (int i : local) tris.push_back(f.verts[i]);
+    }
+}
+
+}  // namespace mesh

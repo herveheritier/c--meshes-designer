@@ -1,0 +1,17 @@
+# Build
+build/
+build-*/
+
+# Exports / fichiers générés
+export.mesh
+export.obj
+*.mesh
+*.obj
+*.txt.bak
+
+# Éditeurs / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
