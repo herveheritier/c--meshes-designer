@@ -8,6 +8,8 @@
 
 Ce projet suit la spécification fonctionnelle **`FONCTIONNALITES.md`** (éditeur « meshes
 designer ») : les chapitres de la spec décrivent le comportement attendu de l'application.
+Les évolutions prévues et réalisées (avec dates et identifiants de commit) sont consignées
+dans **`EVOLUTIONS.md`**.
 
 ## Fonctionnalités
 
