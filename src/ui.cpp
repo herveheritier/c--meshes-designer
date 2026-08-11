@@ -653,6 +653,11 @@ void toolbar(App& app) {
                     false, kGreen, false))
         app.dlgSvgOpen = true;
     ImGui::SameLine();
+    if (toolBtnIcon("export", "Exporter l'image de la vue actuelle en PNG "
+                                "(édition ou prévisualisation, sans l'interface)",
+                    false, kGreen, false))
+        app.dlgPngOpen = true;
+    ImGui::SameLine();
     if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
                                 "(restaurer un état antérieur)",
                     false, kGreen, app.versionFiles.empty()))
@@ -1274,7 +1279,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");
-        ImGui::BulletText("PNG (bouton dans la prévisualisation) : exporter la vue actuelle en image");
+        ImGui::BulletText("PNG (bouton de la barre d'outils ou de la prévisualisation) : exporter la vue actuelle en image");
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
