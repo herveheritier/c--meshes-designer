@@ -106,22 +106,37 @@ Toutes les interactions de dessin s'y font.
 
 ### 3.2 La barre d'outils
 
-Carte flottante en **haut à gauche**, organisée en **groupes** séparés par des
-traits verticaux. Les boutons sont des icônes (sans libellé visible) ; le verbe
-de chaque action est indiqué dans une **infobulle** au survol et dans la fenêtre
-d'aide. Les boutons reflètent leur état : actif (vert), mode particulier (ambre,
-anneau…), ou **grisé** quand l'action n'est pas disponible.
+Carte flottante en **haut à gauche**, organisée en **paquets** séparés par des
+traits verticaux. La barre s'étend sur toute la largeur de la fenêtre et se
+**replie dynamiquement** : un paquet qui ne tient plus dans la largeur restante
+passe automatiquement sur la ligne suivante, si bien qu'**aucun bouton n'est
+jamais masqué**, quelle que soit la taille de la fenêtre. Les boutons sont des
+icônes (sans libellé visible) ; le verbe de chaque action est indiqué dans une
+**infobulle** au survol et dans la fenêtre d'aide. Les boutons reflètent leur
+état : actif (vert), mode particulier (ambre, anneau…), ou **grisé** quand
+l'action n'est pas disponible.
 
-Groupes, de gauche à droite :
+Paquets, dans l'ordre :
 
-1. **Canevas / édition** : grille, réticule, prévisualiser, mode « toutes couleurs », compteur d'images par seconde (toujours visible), cible de sélection (sommet / segment / triangle), presse-papiers (copier / couper / coller), peinture (palette), aligner / répartir, formes prédéfinies, réinitialiser la scène, tout sélectionner, fusionner les points.
-2. **Annuler / Rétablir** : deux boutons avec compteur.
-3. **Sauvegarde** : bouton vert SAVE, export du plan actif en SVG, export de la
-   vue actuelle en image PNG, historique des versions de l'autosave.
-4. **Entrées** : boutons bleus « Charger meshes » et « Charger JSON ».
-5. **Navigation entre plans** : plan précédent / suivant, compteur « i/N », renommer le plan actif, monter / descendre, ajouter un plan vide, supprimer le plan actif.
-6. **Console** : afficher / masquer la console de messages.
-7. **Aide** : fenêtre des raccourcis.
+1. **Canevas** : grille, aimant, pas de grille, réticule.
+2. **Affichage** : prévisualiser, mode « toutes couleurs », images par seconde.
+3. **Vue** : tout afficher, cadrer la sélection, outil mesure.
+4. **Sélection** : cible (sommet / segment / triangle), tout sélectionner (clic
+   droit : menu), compteur de sélection (toujours visible).
+5. **Presse-papiers** : copier / couper / coller / dupliquer la sélection.
+6. **Outils** : peinture (palette), aligner / répartir, rotation précise, mise à
+   l'échelle, formes prédéfinies.
+7. **Fusion des points** : bouton de fusion (avec rayon quand le mode est armé).
+8. **Annuler / Rétablir** : deux boutons avec compteur.
+9. **Sauvegarde** : enregistrer la scène, export SVG du plan actif, export PNG de
+   la vue, historique des versions de l'autosave.
+10. **Entrées** : boutons bleus « Charger meshes », « Charger JSON », « Charger OBJ ».
+11. **Plans — navigation** : plan précédent / suivant, compteur « i/N ».
+12. **Plans — édition** : dupliquer, renommer.
+13. **Plans — ordre** : monter / descendre.
+14. **Plans — gestion** : ajouter un plan vide, supprimer le plan actif, kiosque.
+15. **Scène** : réinitialiser entièrement.
+16. **Interface** : console, aide, réglages.
 
 ### 3.3 Le HUD (affichage d'état)
 

@@ -89,6 +89,19 @@ std::string zoomText(float mult) {
     return buf;
 }
 
+// Largeur rendue par toolBtnIcon : libellé + icône (18 px) + kBtnAutoPad en
+// largeur auto. Une largeur fixe demandée ne peut jamais être plus étroite que
+// cette valeur (garde anti-débordement, ex. « Quitter quand même » à 150 px).
+// Partagée avec toolbar() pour calculer la largeur des paquets de boutons.
+float toolBtnWidth(const char* text, float width = 0.0f) {
+    const bool hasText = text && text[0];
+    const float iconSize = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
+    const float ts = hasText ? ImGui::CalcTextSize(text).x : 0.0f;
+    const float autoW =
+        hasText ? ts + iconSize + kBtnAutoPad : iconSize + 14.0f;
+    return width > 0.0f ? std::max(width, autoW) : autoW;
+}
+
 // Bouton à icône avec état, infobulle et libellé optionnel. L'icône est un
 // SVG du dossier assets/ (repli sur le texte si l'icône est introuvable).
 // `width` > 0 impose une largeur fixe (contenu centré, ex. dialogues).
@@ -99,24 +112,9 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
     const bool hasText = text && text[0];
     const float iconSize = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
     const ImVec2 ts = hasText ? ImGui::CalcTextSize(text) : ImVec2(0, 0);
-    // Largeur du contenu (icône + espace + libellé) : une largeur fixe ne doit
-    // JAMAIS être plus étroite que le contenu, sinon le texte déborde du cadre
-    // (ex. « Quitter quand même » à 150 px). La garde max() ne change rien aux
-    // boutons qui tiennent déjà, mais protège tous les dialogues quelle que
-    // soit la police chargée sur la plateforme.
-    // Largeur « naturelle » d'un bouton auto ; une largeur fixe demandée ne
-    // peut jamais être plus étroite que cette valeur, sinon le texte déborderait
-    // du cadre (ex. « Quitter quand même » à 150 px) — la garde max() ne change
-    // rien aux boutons qui tiennent déjà, mais protège tous les dialogues
-    // quelle que soit la police chargée sur la plateforme.
+    // Largeur du contenu (icône + espace + libellé), pour le centrage du dessin.
     const float contentW = hasText ? iconSize + 8.0f + ts.x : iconSize;
-    const float autoW =
-        hasText ? ts.x + iconSize + kBtnAutoPad : iconSize + 14.0f;
-    ImVec2 size;
-    if (width > 0.0f)
-        size = ImVec2(std::max(width, autoW), 0.0f);
-    else
-        size = ImVec2(autoW, 0.0f);
+    ImVec2 size(toolBtnWidth(text, width), 0.0f);
     if (disabled) ImGui::BeginDisabled();
     if (active) {
         ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
@@ -184,6 +182,16 @@ float dialogBtnWidth(std::initializer_list<const char*> labels) {
     return maxText + iconSize + kBtnAutoPad;
 }
 
+// Largeur rendue par pill() : texte + marges [+ icône de 14 px], au moins minW.
+// Partagée avec toolbar() pour calculer la largeur des paquets de boutons.
+float pillWidth(const char* text, const char* icon, float minW = 0.0f) {
+    const float ico = 14.0f;
+    const bool hasIcon = icon != nullptr;
+    return std::max(ImGui::CalcTextSize(text).x + 18.0f +
+                        (hasIcon ? ico + 6.0f : 0.0f),
+                    minW);
+}
+
 // Pilule verte (ou ambre) lisible avec un compteur, icône facultative.
 // Hauteur alignée sur les boutons à icônes (kBtnFramePad.y) pour la lisibilité.
 // `minW` impose une largeur minimale : les compteurs (fps, plan, historique…)
@@ -193,8 +201,7 @@ void pill(const char* id, const char* text, const ImVec4& bg,
     const float ico = 14.0f;
     const bool hasIcon = icon != nullptr;
     const ImVec2 tsize = ImGui::CalcTextSize(text);
-    const float w =
-        std::max(tsize.x + 18.0f + (hasIcon ? ico + 6.0f : 0.0f), minW);
+    const float w = pillWidth(text, icon, minW);
     const float h = btnFrameHeight();
     const ImVec2 size(w, h);
     ImGui::InvisibleButton(id, size);
@@ -448,7 +455,14 @@ void handleShortcuts(App& app) {
 // ---------------------------------------------------------------------------
 void toolbar(App& app) {
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(8, 8), ImGuiCond_Always);
+    // La barre occupe toute la largeur de la fenêtre, et chaque paquet de
+    // boutons passe sur la ligne suivante dès qu'il n'y tient plus : aucun
+    // bouton n'est jamais masqué, quelle que soit la largeur de la fenêtre.
+    const float margin = 8.0f;
+    const float maxW = std::max(260.0f, io.DisplaySize.x - 2.0f * margin);
+    ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f),
+                                        ImVec2(maxW, FLT_MAX));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.11f, 0.14f, 0.92f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
     ImGui::Begin("##toolbar", nullptr,
@@ -456,343 +470,408 @@ void toolbar(App& app) {
                      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_AlwaysAutoResize);
 
-    // --- Groupe 1 : canevas / édition ---
-    if (toolBtnIcon("grid",
-                    "Grille (G) : afficher/masquer · molette : ajuster le pas · "
-                    "clic du milieu : réinitialiser",
-                    app.gridOn, kGreen, false))
-        app.gridOn = !app.gridOn;
-    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-        app.gridStep = std::clamp(app.gridStep * std::pow(1.25f, io.MouseWheel),
-                                  0.01f, 100.0f);
-        app.setStatus("Pas de grille : " + std::to_string(app.gridStep));
-    }
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
-        app.gridStep = 1.0f;
-        app.setStatus("Pas de grille réinitialisé (1.0)");
-    }
-    ImGui::SameLine();
-    // Bouton Aimant : active / désactive l'aimantation, indépendamment de
-    // l'affichage de la grille. Vert = aimantation active.
-    if (toolBtnIcon("magnet", "Aimantation (Maj+G) : aimanter les points posés et "
-                    "déplacés sur la grille",
-                    app.snapOn, kGreen, false)) {
-        app.snapOn = !app.snapOn;
-        app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
-                                 : "Aimantation désactivée (Maj+G)");
-    }
-    ImGui::SameLine();
-    // Cellule du pas de grille à largeur FIXE (la valeur ne décale pas la barre).
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float groupSepW = 16.0f;  // groupSep() : 7 + 2 + 7 px
+    const float bw = toolBtnWidth(nullptr);  // bouton à icône seule
+    const float contentW = maxW - 2.0f * ImGui::GetStyle().WindowPadding.x;
+
+    // Largeur totale d'un paquet : somme des items + espacements internes.
+    auto packW = [&](std::initializer_list<float> ws) {
+        float total = 0.0f;
+        int n = 0;
+        for (float w : ws) {
+            total += w;
+            ++n;
+        }
+        return total + (n > 0 ? (float)(n - 1) * spacing : 0.0f);
+    };
+    // Place le paquet suivant : même ligne avec séparateur s'il tient dans la
+    // largeur restante, sinon en tête de la ligne suivante — aucun bouton n'est
+    // jamais masqué, la barre se replie dynamiquement sur la largeur de la fenêtre.
+    // NB : NewLine() seul ne ramène pas le curseur à gauche — SetCursorPosX(0)
+    // le ramène au début de la ligne (relatif au contenu de la fenêtre).
+    auto placePack = [&](float w) {
+        const float x = ImGui::GetCursorPosX();
+        if (x <= 0.0f) return;  // début de ligne (1er paquet ou après repli)
+        if (x + groupSepW + w <= contentW) {
+            groupSep();
+        } else {
+            ImGui::NewLine();
+            ImGui::SetCursorPosX(0.0f);
+        }
+    };
+
+    // --- Paquet Canevas : grille, aimant, pas, réticule ---
     {
-        char stepbuf[16];
-        std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
-        valueLabel(stepbuf, ImGui::CalcTextSize("100.00").x + 10.0f);
-    }
-    ImGui::SameLine();
-    if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
-                    app.reticle != ReticleState::Off, kGreen, false))
-        app.cycleReticle();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("preview", "Prévisualiser (P) : aperçu simple → tous les plans → édition",
-                    app.preview != PreviewMode::Off, kAmber, false))
-        app.cyclePreview();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("show-all-fills", "Toutes couleurs : remplir tous les plans pendant l'édition (7.6)",
-                    app.allColors, kGreen, false))
-        app.allColors = !app.allColors;
-
-    ImGui::SameLine();
-    if (toolBtnIcon("fit-view",
-                    "Tout afficher (Accueil) : zoom automatique sur la scène entière",
-                    false, kGreen, false))
-        app.frameView();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("fit-selection",
-                    "Cadrer la sélection (Ctrl+F) : zoom automatique sur la "
-                    "sélection courante",
-                    false, kGreen, false))
-        app.frameSelection();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("measure",
-                    app.measureActive
-                        ? "Outil mesure armé — 2 clics : distance affichée au HUD "
-                          "(Ctrl+M pour désarmer)"
-                        : "Outil mesure (Ctrl+M) : distance entre deux points",
-                    app.measureActive, kGreen, false))
-        app.toggleMeasure();
-
-    ImGui::SameLine();
-    char fpsbuf[32];
-    std::snprintf(fpsbuf, sizeof(fpsbuf), "%.0f fps", app.fps);
-    pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
-         ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
-
-    ImGui::SameLine();
-    const char* targetLabel = selModeName(app.selMode);
-    if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
-                    false, kGreen, false, targetLabel))
-        app.cycleTarget();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("copy", "Copier (Ctrl+C) — points + triangles entièrement contenus",
-                    false, kGreen, app.selectionCount() == 0))
-        app.copySelection();
-    ImGui::SameLine();
-    if (toolBtnIcon("cut", "Couper (Ctrl+X)", false, kGreen, app.selectionCount() == 0))
-        app.cutSelection();
-    ImGui::SameLine();
-    if (toolBtnIcon("paste", "Coller (Ctrl+V) — chaque collage décale d'un demi-pas de grille",
-                    false, kGreen, !app.hasClip))
-        app.pasteClipboard();
-    ImGui::SameLine();
-    if (toolBtnIcon("duplicate",
-                    "Dupliquer la sélection (Ctrl+D) — copie légèrement décalée, "
-                    "prête à déplacer",
-                    false, kGreen, app.selectionCount() == 0))
-        app.duplicateSelection();
-
-    ImGui::SameLine();
-    if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
-                    app.paletteOpen, kGreen, false))
-        app.paletteOpen = !app.paletteOpen;
-
-    ImGui::SameLine();
-    if (toolBtnIcon("align", "Aligner / répartir la sélection", app.alignOpen, kGreen,
-                    false))
-        app.alignOpen = !app.alignOpen;
-
-    ImGui::SameLine();
-    if (toolBtnIcon("rotate", "Rotation précise (Alt+R) : saisir un angle exact",
-                    app.dlgRotateOpen, kGreen, false))
-        app.dlgRotateOpen = !app.dlgRotateOpen;
-
-    ImGui::SameLine();
-    if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
-                    app.dlgScaleOpen, kGreen, false))
-        app.dlgScaleOpen = !app.dlgScaleOpen;
-
-    ImGui::SameLine();
-    if (toolBtnIcon("shapes",
-                    "Formes prédéfinies — clic : menu contextuel "
-                    "(cercle, carré, étoile, anneau…) · molette : côtés/pointes "
-                    "si une forme à côtés est armée",
-                    app.isShapeArmed(), kGreen, false))
-        ImGui::OpenPopup("##shapesmenu");
-    // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
-    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
-        (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star)) {
-        app.circleSides =
-            std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-        app.setStatus("Nombre de " +
-                      std::string(app.tool == Tool::Star ? "pointes de l'étoile"
-                                                        : "côtés du " +
-                                                              std::string(app.tool == Tool::Circle
-                                                                              ? "cercle"
-                                                                              : "anneau")) +
-                      " : " + std::to_string(app.circleSides));
-    }
-    shapesMenu(app);
-
-    ImGui::SameLine();
-    if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
-                    false, kRed, false))
-        app.dlgResetOpen = true;
-
-    ImGui::SameLine();
-    // Bouton dédié à la sélection : clic gauche = tout sélectionner (Ctrl+A) ;
-    // clic droit = menu contextuel (tout sélectionner / inverser la sélection).
-    if (toolBtnIcon("select-all",
-                    "Sélection — clic gauche : tout sélectionner (Ctrl+A) · "
-                    "clic droit : menu (tout / inverser)",
-                    false, kGreen, false))
-        app.selectAll();
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
-    // Les choix contextuels s'affichent sous forme de BOUTONS (visibles et
-    // larges), pas de simples entrées de menu.
-    if (ImGui::BeginPopup("##selmenu")) {
-        ImGui::TextDisabled("Actions sur la sélection (selon la cible) :");
-        if (toolBtnIcon("select-all", "Tout sélectionner (Ctrl+A)", false, kGreen,
-                        false, "Tout sélectionner", 190.0f)) {
-            app.selectAll();
-            ImGui::CloseCurrentPopup();
+        const float stepW = ImGui::CalcTextSize("100.00").x + 10.0f;
+        placePack(packW({bw, bw, stepW, bw}));
+        if (toolBtnIcon("grid",
+                        "Grille (G) : afficher/masquer · molette : ajuster le pas · "
+                        "clic du milieu : réinitialiser",
+                        app.gridOn, kGreen, false))
+            app.gridOn = !app.gridOn;
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+            app.gridStep = std::clamp(app.gridStep * std::pow(1.25f, io.MouseWheel),
+                                      0.01f, 100.0f);
+            app.setStatus("Pas de grille : " + std::to_string(app.gridStep));
         }
-        if (toolBtnIcon("invert-selection", "Inverser la sélection (Ctrl+I)", false,
-                        kGreen, false, "Inverser la sélection", 190.0f)) {
-            app.invertSelection();
-            ImGui::CloseCurrentPopup();
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
+            app.gridStep = 1.0f;
+            app.setStatus("Pas de grille réinitialisé (1.0)");
         }
-        ImGui::EndPopup();
-    }
-    // Compteur de sélection TOUJOURS présent (0 inclus) : la barre d'outils ne
-    // change pas de dimension selon la sélection (la pilule a une largeur fixe
-    // suffisante pour les plus grands compteurs).
-    ImGui::SameLine();
-    pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen, nullptr,
-         ImGui::CalcTextSize("9999").x + 18.0f);
-
-    // --- Fusion des points (5.5 / 5.6) ---
-    const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
-    const bool mergeCanArm = app.selMode == SelMode::Vertex && app.selVerts.size() == 1;
-    const bool mergeCanGroup = app.selMode == SelMode::Vertex && app.selVerts.size() >= 2;
-    if (toolBtnIcon(
-            "merge-points",
-            mergeArmed
-                ? "Fusion par déplacement armée — glissez le point sélectionné près "
-                  "d'un autre point pour les fusionner · molette : rayon (8-64 px) · "
-                  "re-clic : verrouiller puis désarmer"
-                : "Fusionner les points superposés (5.5, anneau orange) · avec 1 point "
-                  "sélectionné : armer la fusion par déplacement (5.6)",
-            mergeArmed, kGreen, !(mergeArmed || mergeCanArm || mergeCanGroup)))
-        app.toggleMergeMode();
-    // Cadenas sur le coin du bouton quand le mode est verrouillé (5.6).
-    if (app.mergeMode == App::MergeMode::Locked) {
-        const ImVec2 bmin = ImGui::GetItemRectMin();
-        const ImVec2 bmax = ImGui::GetItemRectMax();
-        drawSvgIconNamed(ImGui::GetWindowDrawList(), "merge-lock",
-                         ImVec2(bmax.x - 13.0f, bmin.y + 1.0f), 11.0f,
-                         IM_COL32(255, 255, 255, 235));
-    }
-    // Molette sur le bouton : rayon de fusion (8 à 64 px écran, indépendant du zoom).
-    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-        // lround : un cran de molette vaut ±1 (les roues à défilement lisse
-        // envoient des fractions ; l'arrondi évite un réglage muet).
-        app.mergeRadius =
-            std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
-        app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
-    }
-    // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6),
-    // à largeur FIXE pour ne pas décaler la barre quand la valeur change.
-    if (mergeArmed) {
         ImGui::SameLine();
-        char radbuf[8];
-        std::snprintf(radbuf, sizeof(radbuf), "%d", app.mergeRadius);
-        valueLabel(radbuf, ImGui::CalcTextSize("64").x);
+        // Bouton Aimant : active / désactive l'aimantation, indépendamment de
+        // l'affichage de la grille. Vert = aimantation active.
+        if (toolBtnIcon("magnet", "Aimantation (Maj+G) : aimanter les points posés et "
+                        "déplacés sur la grille",
+                        app.snapOn, kGreen, false)) {
+            app.snapOn = !app.snapOn;
+            app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                     : "Aimantation désactivée (Maj+G)");
+        }
+        ImGui::SameLine();
+        // Cellule du pas de grille à largeur FIXE (la valeur ne décale pas la barre).
+        {
+            char stepbuf[16];
+            std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
+            valueLabel(stepbuf, stepW);
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
+                        app.reticle != ReticleState::Off, kGreen, false))
+            app.cycleReticle();
     }
 
-    // --- Groupe 2 : annuler / rétablir (avec compteur) ---
-    groupSep();
-    if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
-        app.undo();
-    ImGui::SameLine();
-    pill("##pillundo", std::to_string(app.undoStack.size()).c_str(), kGreen, nullptr,
-         ImGui::CalcTextSize("50").x + 18.0f);
-    ImGui::SameLine();
-    if (toolBtnIcon("redo", "Rétablir (Ctrl+Maj+Z ou Ctrl+Y)", false, kGreen,
-                    app.redoStack.empty()))
-        app.redo();
-    ImGui::SameLine();
-    pill("##pillredo", std::to_string(app.redoStack.size()).c_str(), kGreen, nullptr,
-         ImGui::CalcTextSize("50").x + 18.0f);
-
-    // --- Ligne 2 : simple retour à la ligne. L'ancien code sautait de
-    // `GetCursorPosY() + rowH`, mais le curseur inclut déjà l'espacement :
-    // cela créait un grand espace vide entre les deux lignes. ---
-
-    // --- Groupe 3 : sauvegarde ---
-    if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S) — fenêtre d'emplacement",
-                    false, kGreen, false))
-        openSaveDialog(app);
-    ImGui::SameLine();
-    if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
-                    false, kGreen, false))
-        app.dlgSvgOpen = true;
-    ImGui::SameLine();
-    if (toolBtnIcon("image", "Exporter l'image de la vue actuelle en PNG "
-                              "(édition ou prévisualisation, sans l'interface)",
-                    false, kGreen, false))
-        app.dlgPngOpen = true;
-    ImGui::SameLine();
-    if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
-                                "(restaurer un état antérieur)",
-                    false, kGreen, app.versionFiles.empty()))
-        app.dlgVersionsOpen = true;
-
-    // --- Groupe 4 : entrées ---
-    groupSep();
-    if (toolBtnIcon("import-meshes", "Charger un fichier au format texte « meshes »",
-                    false, kBlue, false))
-        app.openImportDialog(0);
-    ImGui::SameLine();
-    if (toolBtnIcon("import-json", "Charger un fichier de scène JSON (ou glisser-déposer)",
-                    false, kBlue, false))
-        app.openImportDialog(1);
-    ImGui::SameLine();
-    if (toolBtnIcon("import-obj", "Charger un fichier OBJ (v/f — les faces sont triangulées)",
-                    false, kBlue, false))
-        app.openImportDialog(2);
-
-    // --- Groupe 5 : navigation entre plans (7) ---
-    groupSep();
-    int n = app.scene.count();
-    bool canNav = n >= 2;
-    if (toolBtnIcon("prev-shape", "Plan précédent (i-1)", false, kGreen, !canNav))
-        app.prevPlane();
-    ImGui::SameLine();
-    if (toolBtnIcon("next-shape", "Plan suivant (i+1)", false, kGreen, !canNav))
-        app.nextPlane();
-    ImGui::SameLine();
-    char planbuf[24];
-    std::snprintf(planbuf, sizeof(planbuf), "%d/%d", app.scene.active + 1, n);
-    pill("##pillplan", planbuf, kGreen, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
-    ImGui::SameLine();
-    if (toolBtnIcon("duplicate-plane", "Dupliquer le plan actif (Alt+D) — copie complète "
-                                        "avec ses couleurs, insérée juste au-dessus",
-                    false, kGreen, n < 1))
-        app.duplicatePlane();
-    ImGui::SameLine();
-    if (toolBtnIcon("rename", "Renommer le plan actif (nom affiché au kiosque et au HUD)",
-                    app.dlgRenameOpen, kGreen, n < 1)) {
-        app.dlgRenameOpen = true;
-        std::snprintf(app.dlgRenameName, sizeof(app.dlgRenameName), "%s",
-                      planeLabel(app, app.scene.active).c_str());
+    // --- Paquet Affichage : prévisualisation, toutes couleurs, fps ---
+    {
+        char fpsbuf[32];
+        std::snprintf(fpsbuf, sizeof(fpsbuf), "%.0f fps", app.fps);
+        const float fpsW =
+            pillWidth(fpsbuf, "fps", ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
+        placePack(packW({bw, bw, fpsW}));
+        if (toolBtnIcon("preview", "Prévisualiser (P) : aperçu simple → tous les plans → édition",
+                        app.preview != PreviewMode::Off, kAmber, false))
+            app.cyclePreview();
+        ImGui::SameLine();
+        if (toolBtnIcon("show-all-fills", "Toutes couleurs : remplir tous les plans pendant l'édition (7.6)",
+                        app.allColors, kGreen, false))
+            app.allColors = !app.allColors;
+        ImGui::SameLine();
+        pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
+             ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
     }
-    ImGui::SameLine();
-    if (toolBtnIcon("move-shape-up", "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
-                    false, kGreen, app.scene.active >= n - 1))
-        app.planeUp();
-    ImGui::SameLine();
-    if (toolBtnIcon("move-shape-down", "Descendre le plan actif (Alt+Flèche bas)", false,
-                    kGreen, app.scene.active <= 0))
-        app.planeDown();
-    ImGui::SameLine();
-    const bool plusClicked = toolBtnIcon(
-        "new-shape", "Ajouter un plan vide — clic gauche : avant le plan courant ; "
-                     "clic droit : après",
-        false, kGreen, false);
-    if (plusClicked) app.addPlane(false);
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) app.addPlane(true);
-    n = app.scene.count();  // rafraîchit après un ajout éventuel (états ×/K à jour)
-    canNav = n >= 2;
-    ImGui::SameLine();
-    if (toolBtnIcon("delete-shape", "Supprimer le plan actif (confirmation)", false,
-                    kRed, n <= 1))
-        app.dlgDeletePlaneOpen = true;
-    ImGui::SameLine();
-    if (toolBtnIcon("kiosk", "Kiosque : choisir le plan en couverture (Alt+K)", app.kiosk,
-                    kGreen, !canNav))
-        app.toggleKiosk();
 
-    // --- Groupe 6 : console ---
-    groupSep();
-    if (toolBtnIcon("console", "Afficher / masquer la console de messages",
-                    app.consoleVisible, kGreen, false))
-        app.consoleVisible = !app.consoleVisible;
+    // --- Paquet Vue : tout afficher, cadrer, mesure ---
+    {
+        placePack(packW({bw, bw, bw}));
+        if (toolBtnIcon("fit-view",
+                        "Tout afficher (Accueil) : zoom automatique sur la scène entière",
+                        false, kGreen, false))
+            app.frameView();
+        ImGui::SameLine();
+        if (toolBtnIcon("fit-selection",
+                        "Cadrer la sélection (Ctrl+F) : zoom automatique sur la "
+                        "sélection courante",
+                        false, kGreen, false))
+            app.frameSelection();
+        ImGui::SameLine();
+        if (toolBtnIcon("measure",
+                        app.measureActive
+                            ? "Outil mesure armé — 2 clics : distance affichée au HUD "
+                              "(Ctrl+M pour désarmer)"
+                            : "Outil mesure (Ctrl+M) : distance entre deux points",
+                        app.measureActive, kGreen, false))
+            app.toggleMeasure();
+    }
 
-    // --- Groupe 7 : aide ---
-    ImGui::SameLine();
-    if (toolBtnIcon("help", "Fenêtre d'aide et raccourcis (?)", app.dlgHelpOpen, kGreen,
-                    false))
-        app.dlgHelpOpen = !app.dlgHelpOpen;
+    // --- Paquet Sélection : cible, tout sélectionner (+menu), compteur ---
+    {
+        const char* targetLabel = selModeName(app.selMode);
+        const std::string selCount = std::to_string(app.selectionCount());
+        const float selPillW =
+            pillWidth(selCount.c_str(), nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
+        placePack(packW({toolBtnWidth(targetLabel), bw, selPillW}));
+        if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
+                        false, kGreen, false, targetLabel))
+            app.cycleTarget();
+        ImGui::SameLine();
+        // Clic gauche = tout sélectionner (Ctrl+A) ; clic droit = menu contextuel.
+        if (toolBtnIcon("select-all",
+                        "Sélection — clic gauche : tout sélectionner (Ctrl+A) · "
+                        "clic droit : menu (tout / inverser)",
+                        false, kGreen, false))
+            app.selectAll();
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
+        // Les choix contextuels s'affichent sous forme de BOUTONS (visibles et
+        // larges), pas de simples entrées de menu.
+        if (ImGui::BeginPopup("##selmenu")) {
+            ImGui::TextDisabled("Actions sur la sélection (selon la cible) :");
+            if (toolBtnIcon("select-all", "Tout sélectionner (Ctrl+A)", false, kGreen,
+                            false, "Tout sélectionner", 190.0f)) {
+                app.selectAll();
+                ImGui::CloseCurrentPopup();
+            }
+            if (toolBtnIcon("invert-selection", "Inverser la sélection (Ctrl+I)", false,
+                            kGreen, false, "Inverser la sélection", 190.0f)) {
+                app.invertSelection();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        // Compteur TOUJOURS présent (0 inclus), à largeur fixe : la barre ne
+        // change pas de dimension selon la sélection.
+        ImGui::SameLine();
+        pill("##pillsel", selCount.c_str(), kGreen, nullptr,
+             ImGui::CalcTextSize("9999").x + 18.0f);
+    }
 
-    // --- Groupe 8 : réglages ---
-    ImGui::SameLine();
-    if (toolBtnIcon("settings", "Réglages : distance de détection des segments",
-                    app.settingsOpen, kGreen, false))
-        app.settingsOpen = !app.settingsOpen;
+    // --- Paquet Presse-papiers : copier, couper, coller, dupliquer ---
+    {
+        placePack(packW({bw, bw, bw, bw}));
+        if (toolBtnIcon("copy", "Copier (Ctrl+C) — points + triangles entièrement contenus",
+                        false, kGreen, app.selectionCount() == 0))
+            app.copySelection();
+        ImGui::SameLine();
+        if (toolBtnIcon("cut", "Couper (Ctrl+X)", false, kGreen, app.selectionCount() == 0))
+            app.cutSelection();
+        ImGui::SameLine();
+        if (toolBtnIcon("paste", "Coller (Ctrl+V) — chaque collage décale d'un demi-pas de grille",
+                        false, kGreen, !app.hasClip))
+            app.pasteClipboard();
+        ImGui::SameLine();
+        if (toolBtnIcon("duplicate",
+                        "Dupliquer la sélection (Ctrl+D) — copie légèrement décalée, "
+                        "prête à déplacer",
+                        false, kGreen, app.selectionCount() == 0))
+            app.duplicateSelection();
+    }
+
+    // --- Paquet Outils : peinture, aligner, rotation, échelle, formes ---
+    {
+        placePack(packW({bw, bw, bw, bw, bw}));
+        if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
+                        app.paletteOpen, kGreen, false))
+            app.paletteOpen = !app.paletteOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("align", "Aligner / répartir la sélection", app.alignOpen, kGreen,
+                        false))
+            app.alignOpen = !app.alignOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("rotate", "Rotation précise (Alt+R) : saisir un angle exact",
+                        app.dlgRotateOpen, kGreen, false))
+            app.dlgRotateOpen = !app.dlgRotateOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
+                        app.dlgScaleOpen, kGreen, false))
+            app.dlgScaleOpen = !app.dlgScaleOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("shapes",
+                        "Formes prédéfinies — clic : menu contextuel "
+                        "(cercle, carré, étoile, anneau…) · molette : côtés/pointes "
+                        "si une forme à côtés est armée",
+                        app.isShapeArmed(), kGreen, false))
+            ImGui::OpenPopup("##shapesmenu");
+        // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
+            (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star)) {
+            app.circleSides =
+                std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+            app.setStatus("Nombre de " +
+                          std::string(app.tool == Tool::Star ? "pointes de l'étoile"
+                                                            : "côtés du " +
+                                                                  std::string(app.tool == Tool::Circle
+                                                                                  ? "cercle"
+                                                                                  : "anneau")) +
+                          " : " + std::to_string(app.circleSides));
+        }
+        shapesMenu(app);
+    }
+
+    // --- Paquet Fusion des points (5.5 / 5.6) ---
+    {
+        const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
+        const bool mergeCanArm = app.selMode == SelMode::Vertex && app.selVerts.size() == 1;
+        const bool mergeCanGroup = app.selMode == SelMode::Vertex && app.selVerts.size() >= 2;
+        const float radW = ImGui::CalcTextSize("64").x;
+        placePack(mergeArmed ? packW({bw, radW}) : packW({bw}));
+        if (toolBtnIcon(
+                "merge-points",
+                mergeArmed
+                    ? "Fusion par déplacement armée — glissez le point sélectionné près "
+                      "d'un autre point pour les fusionner · molette : rayon (8-64 px) · "
+                      "re-clic : verrouiller puis désarmer"
+                    : "Fusionner les points superposés (5.5, anneau orange) · avec 1 point "
+                      "sélectionné : armer la fusion par déplacement (5.6)",
+                mergeArmed, kGreen, !(mergeArmed || mergeCanArm || mergeCanGroup)))
+            app.toggleMergeMode();
+        // Cadenas sur le coin du bouton quand le mode est verrouillé (5.6).
+        if (app.mergeMode == App::MergeMode::Locked) {
+            const ImVec2 bmin = ImGui::GetItemRectMin();
+            const ImVec2 bmax = ImGui::GetItemRectMax();
+            drawSvgIconNamed(ImGui::GetWindowDrawList(), "merge-lock",
+                             ImVec2(bmax.x - 13.0f, bmin.y + 1.0f), 11.0f,
+                             IM_COL32(255, 255, 255, 235));
+        }
+        // Molette sur le bouton : rayon de fusion (8 à 64 px écran).
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+            // lround : un cran de molette vaut ±1 (les roues à défilement lisse
+            // envoient des fractions ; l'arrondi évite un réglage muet).
+            app.mergeRadius =
+                std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
+            app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
+        }
+        // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6),
+        // à largeur FIXE pour ne pas décaler la barre quand la valeur change.
+        if (mergeArmed) {
+            ImGui::SameLine();
+            char radbuf[8];
+            std::snprintf(radbuf, sizeof(radbuf), "%d", app.mergeRadius);
+            valueLabel(radbuf, radW);
+        }
+    }
+
+    // --- Paquet Annuler / Rétablir (avec compteurs) ---
+    {
+        const std::string undoN = std::to_string(app.undoStack.size());
+        const std::string redoN = std::to_string(app.redoStack.size());
+        const float undoW = pillWidth(undoN.c_str(), nullptr, ImGui::CalcTextSize("50").x + 18.0f);
+        const float redoW = pillWidth(redoN.c_str(), nullptr, ImGui::CalcTextSize("50").x + 18.0f);
+        placePack(packW({bw, undoW, bw, redoW}));
+        if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
+            app.undo();
+        ImGui::SameLine();
+        pill("##pillundo", undoN.c_str(), kGreen, nullptr,
+             ImGui::CalcTextSize("50").x + 18.0f);
+        ImGui::SameLine();
+        if (toolBtnIcon("redo", "Rétablir (Ctrl+Maj+Z ou Ctrl+Y)", false, kGreen,
+                        app.redoStack.empty()))
+            app.redo();
+        ImGui::SameLine();
+        pill("##pillredo", redoN.c_str(), kGreen, nullptr,
+             ImGui::CalcTextSize("50").x + 18.0f);
+    }
+
+    // --- Paquet Sauvegarde : scène, SVG, PNG, historique ---
+    {
+        placePack(packW({bw, bw, bw, bw}));
+        if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S) — fenêtre d'emplacement",
+                        false, kGreen, false))
+            openSaveDialog(app);
+        ImGui::SameLine();
+        if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
+                        false, kGreen, false))
+            app.dlgSvgOpen = true;
+        ImGui::SameLine();
+        if (toolBtnIcon("image", "Exporter l'image de la vue actuelle en PNG "
+                                  "(édition ou prévisualisation, sans l'interface)",
+                        false, kGreen, false))
+            app.dlgPngOpen = true;
+        ImGui::SameLine();
+        if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
+                                    "(restaurer un état antérieur)",
+                        false, kGreen, app.versionFiles.empty()))
+            app.dlgVersionsOpen = true;
+    }
+
+    // --- Paquet Entrées : meshes, JSON, OBJ ---
+    {
+        placePack(packW({bw, bw, bw}));
+        if (toolBtnIcon("import-meshes", "Charger un fichier au format texte « meshes »",
+                        false, kBlue, false))
+            app.openImportDialog(0);
+        ImGui::SameLine();
+        if (toolBtnIcon("import-json", "Charger un fichier de scène JSON (ou glisser-déposer)",
+                        false, kBlue, false))
+            app.openImportDialog(1);
+        ImGui::SameLine();
+        if (toolBtnIcon("import-obj", "Charger un fichier OBJ (v/f — les faces sont triangulées)",
+                        false, kBlue, false))
+            app.openImportDialog(2);
+    }
+
+    // --- Paquets Plans (7) : découpés en sous-paquets compacts pour que
+    // chacun tienne même dans une fenêtre très étroite (jamais de clipping).
+    {
+        int n = app.scene.count();
+        bool canNav = n >= 2;
+        char planbuf[24];
+        std::snprintf(planbuf, sizeof(planbuf), "%d/%d", app.scene.active + 1, n);
+        const float planPillW =
+            pillWidth(planbuf, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
+        // Navigation : précédent, suivant, compteur.
+        placePack(packW({bw, bw, planPillW}));
+        if (toolBtnIcon("prev-shape", "Plan précédent (i-1)", false, kGreen, !canNav))
+            app.prevPlane();
+        ImGui::SameLine();
+        if (toolBtnIcon("next-shape", "Plan suivant (i+1)", false, kGreen, !canNav))
+            app.nextPlane();
+        ImGui::SameLine();
+        pill("##pillplan", planbuf, kGreen, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
+        // Édition : dupliquer, renommer.
+        placePack(packW({bw, bw}));
+        if (toolBtnIcon("duplicate-plane", "Dupliquer le plan actif (Alt+D) — copie complète "
+                                            "avec ses couleurs, insérée juste au-dessus",
+                        false, kGreen, n < 1))
+            app.duplicatePlane();
+        ImGui::SameLine();
+        if (toolBtnIcon("rename", "Renommer le plan actif (nom affiché au kiosque et au HUD)",
+                        app.dlgRenameOpen, kGreen, n < 1)) {
+            app.dlgRenameOpen = true;
+            std::snprintf(app.dlgRenameName, sizeof(app.dlgRenameName), "%s",
+                          planeLabel(app, app.scene.active).c_str());
+        }
+        // Ordre : monter, descendre.
+        placePack(packW({bw, bw}));
+        if (toolBtnIcon("move-shape-up", "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
+                        false, kGreen, app.scene.active >= n - 1))
+            app.planeUp();
+        ImGui::SameLine();
+        if (toolBtnIcon("move-shape-down", "Descendre le plan actif (Alt+Flèche bas)", false,
+                        kGreen, app.scene.active <= 0))
+            app.planeDown();
+        // Gestion : ajouter, supprimer, kiosque.
+        placePack(packW({bw, bw, bw}));
+        const bool plusClicked = toolBtnIcon(
+            "new-shape", "Ajouter un plan vide — clic gauche : avant le plan courant ; "
+                         "clic droit : après",
+            false, kGreen, false);
+        if (plusClicked) app.addPlane(false);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) app.addPlane(true);
+        n = app.scene.count();  // rafraîchit après un ajout (états ×/K à jour)
+        canNav = n >= 2;
+        ImGui::SameLine();
+        if (toolBtnIcon("delete-shape", "Supprimer le plan actif (confirmation)", false,
+                        kRed, n <= 1))
+            app.dlgDeletePlaneOpen = true;
+        ImGui::SameLine();
+        if (toolBtnIcon("kiosk", "Kiosque : choisir le plan en couverture (Alt+K)", app.kiosk,
+                        kGreen, !canNav))
+            app.toggleKiosk();
+    }
+
+    // --- Paquet Scène : réinitialiser ---
+    {
+        placePack(packW({bw}));
+        if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
+                        false, kRed, false))
+            app.dlgResetOpen = true;
+    }
+
+    // --- Paquet Interface : console, aide, réglages ---
+    {
+        placePack(packW({bw, bw, bw}));
+        if (toolBtnIcon("console", "Afficher / masquer la console de messages",
+                        app.consoleVisible, kGreen, false))
+            app.consoleVisible = !app.consoleVisible;
+        ImGui::SameLine();
+        if (toolBtnIcon("help", "Fenêtre d'aide et raccourcis (?)", app.dlgHelpOpen, kGreen,
+                        false))
+            app.dlgHelpOpen = !app.dlgHelpOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("settings", "Réglages : distance de détection des segments",
+                        app.settingsOpen, kGreen, false))
+            app.settingsOpen = !app.settingsOpen;
+    }
 
     ImGui::End();
     ImGui::PopStyleVar();

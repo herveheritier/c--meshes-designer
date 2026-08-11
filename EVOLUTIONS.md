@@ -23,10 +23,15 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-_(aucune évolution en attente — toutes sont livrées)_
+- ajouter un nouvel objet de type anneau (il faudra trouver commentle nommer) dont le nombre de coté extérieurs peut être différent du nombre de cotés intérieurs
 
 ## Effectuées
 
+- 2026-08-11 · `?` — Interface : barre d'outils réorganisée en paquets
+  cohérents (canevas, affichage, vue, sélection, presse-papiers, outils,
+  fusion, annuler/rétablir, sauvegarde, entrées, plans, scène, interface) qui
+  se replient automatiquement à la largeur de la fenêtre — aucun bouton n'est
+  jamais masqué, quelle que soit la taille de la fenêtre.
 - 2026-08-11 · `e8e0e03` — Correctifs : en prévisualisation, plus aucun
   raccourci ne modifie la géométrie (seuls zoom, cadrage et sortie restent
   actifs, spec 9.3) ; la duplication d'un plan reprend le nom par défaut ;
