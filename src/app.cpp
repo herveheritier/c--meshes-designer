@@ -1442,6 +1442,30 @@ void App::rotateSelectionExact(float deg) {
     logMsg(buf);
 }
 
+void App::nudgeSelection(float dx, float dy) {
+    const std::vector<int> verts = selectionVertices();
+    if (verts.empty()) {
+        setStatus("Déplacement au clavier : sélectionnez d'abord des éléments");
+        return;
+    }
+    // Une salve de flèches (~350 ms entre deux presses) constitue une seule
+    // étape annulable : on ne pousse l'historique qu'à la première flèche.
+    const unsigned int now = SDL_GetTicks();
+    if ((int)(now - nudgeTimeMs_) > 350) pushUndo();
+    nudgeTimeMs_ = now;
+    const size_t n = scene.activePlane().vertices.size();
+    for (int v : verts) {
+        if (v < 0 || (size_t)v >= n) continue;
+        scene.activePlane().vertices[v].x += dx;
+        scene.activePlane().vertices[v].y += dy;
+    }
+    dirty = true;
+    const char* dir = dx != 0.0f ? (dx > 0.0f ? "droite" : "gauche")
+                                 : (dy > 0.0f ? "haut" : "bas");
+    setStatus(std::to_string(verts.size()) + " sommet(s) déplacé(s) — " +
+              std::string(dir));
+}
+
 void App::rotateAllPlanesAround(const Vec2& pivot, float deg) {
     rotDeg += deg;  // angle cumulé affiché au HUD (rot X°), remis à zéro par Ctrl+0
     const float rad = deg * kPi / 180.0f;

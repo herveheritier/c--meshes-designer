@@ -276,6 +276,9 @@ public:
     void rotateSelectionAround(const Vec2& pivot, float deg);
     // Rotation précise (saisie d'un angle) : pivot = centre de la sélection.
     void rotateSelectionExact(float deg);
+    // Déplacement au clavier de la sélection (flèches) : dx/dy en unités monde.
+    // Une salve de flèches rapprochées forme une seule étape annulable.
+    void nudgeSelection(float dx, float dy);
     // Rotation de TOUS les plans autour du pivot (8.3, AltGr + molette).
     void rotateAllPlanesAround(const Vec2& pivot, float deg);
 
@@ -343,6 +346,7 @@ private:
     // n'est créée que si la géométrie a changé (pas de churn à chaque autosave).
     Scene lastVersionedScene_;
     bool rotUndoPushed_ = false;
+    unsigned int nudgeTimeMs_ = 0;  // SDL_GetTicks() de la dernière flèche (salve = 1 undo)
     float savedZoom_ = -1.0f;   // état de la dernière sauvegarde automatique
     float savedCx_ = 0.0f;
     float savedCy_ = 0.0f;

@@ -366,6 +366,17 @@ void handleShortcuts(App& app) {
         app.distributeY();
     }
 
+    // Déplacement au clavier de la sélection (outil Sélection uniquement) :
+    // flèches = 1 pas de grille, Maj = ×5 — Alt exclu (aligner/répartir),
+    // Ctrl exclu. Une salve de flèches = une seule étape annulable.
+    if (app.tool == Tool::Select && !io.KeyCtrl && !io.KeyAlt) {
+        const float step = app.gridStep * (io.KeyShift ? 5.0f : 1.0f);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) app.nudgeSelection(-step, 0.0f);
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) app.nudgeSelection(step, 0.0f);
+        else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) app.nudgeSelection(0.0f, step);
+        else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) app.nudgeSelection(0.0f, -step);
+    }
+
     // Plans : ordre d'empilement (7.2) et kiosque (7.5).
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_UpArrow))
         app.planeUp();
@@ -1985,7 +1996,7 @@ void frame(App& app) {
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
                      ImGuiWindowFlags_NoScrollWithMouse |
                      ImGuiWindowFlags_NoBringToFrontOnFocus |
-                     ImGuiWindowFlags_NoSavedSettings);
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings);
     viewport(app);
     ImGui::End();
     ImGui::PopStyleColor();

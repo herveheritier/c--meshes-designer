@@ -120,7 +120,10 @@ int main(int, char**) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // NB : la navigation clavier d'ImGui (NavEnableKeyboard) est volontairement
+    // laissée désactivée : les flèches servent au déplacement de la sélection
+    // (nudge) et aux raccourcis Alt+flèches, sans que le focus ne circule
+    // entre les widgets.
     loadUiFont(io);
     ImGui::StyleColorsDark();
 
