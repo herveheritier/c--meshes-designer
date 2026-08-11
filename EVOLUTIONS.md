@@ -28,9 +28,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 > Évolutions décrites dans la spécification mais pas encore implémentées.
 > Les références (§) renvoient aux chapitres de `FONCTIONNALITES.md`.
 
-- [x] **Molette sur le bouton de la forme active** (4.2) : régler aussi le nombre de côtés
-  du cercle et de l'anneau à la molette sur le bouton (aujourd'hui réglable uniquement
-  sur le canvas).
 - [ ] **Aide prospective au survol des entités** (13) : le toast décrit le geste possible
   au survol d'un sommet (« sélectionner ce sommet — clic droit pour le déplacer ») et
   d'une arête de triangle (« Clic gauche pour créer un nouveau triangle à partir de ce
@@ -53,6 +50,10 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-11 · `2469d45` — Molette sur le bouton de la forme active (4.2) : le nombre
+  de côtés du cercle et de l'anneau se règle aussi à la molette sur le bouton de la
+  forme (plus seulement sur le canvas), avec le compteur de côtés affiché à côté du
+  bouton.
 - 2026-08-11 · `2469d45` — Aperçu du tracé des formes (4.2) : le contour de la forme
   prévisualisée ne se refermait pas complètement autour de la zone remplie
   (seule une arête sur deux était tracée) ; il suit désormais intégralement le
