@@ -76,6 +76,136 @@ static void testTriangulation() {
     CHECK(pointInTriangle({0.5f, 0.0f}, {0, 0}, {1, 0}, {0, 1}));  // sur le bord
 }
 
+// Triangulation de la bande d'une couronne (triangulateBand) : le résultat
+// doit être un anneau valide — exactement n+m triangles, aucun croisement ni
+// chevauchement entre paires, tous orientés dans le même sens, couverture
+// totale de la bande (somme des aires) et trou jamais rempli. Régression : la
+// couture à 0° reliait au dernier sommet (O(n-1)/I(m-1)) au lieu du connecteur
+// courant (O(0)/I(0)) : les deux triangles de fermeture se chevauchaient.
+static void testCrownBand() {
+    std::printf("[couronne (triangulateBand)]\n");
+
+    const auto rim = [](int n, float r) {
+        std::vector<Vec2> pts;
+        pts.reserve((size_t)n);
+        for (int i = 0; i < n; ++i) {
+            const float a = (float)i * 2.0f * 3.14159265f / (float)n;
+            pts.push_back({std::cos(a) * r, std::sin(a) * r});
+        }
+        return pts;
+    };
+    const auto area2 = [](const Vec2& a, const Vec2& b, const Vec2& c) {
+        return cross(b - a, c - a);
+    };
+    // Croisement propre de deux segments (points d'intersection intérieurs).
+    // Les produits vectoriels doivent dépasser un epsilon : en Release, la
+    // contraction FMA donne de minuscules valeurs non nulles aux arêtes qui ne
+    // font que partager un sommet (faux positifs sinon).
+    const auto segCross = [](const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
+        const float eps = 1e-4f;
+        const float d1 = cross(d - c, a - c);
+        const float d2 = cross(d - c, b - c);
+        const float d3 = cross(b - a, c - a);
+        const float d4 = cross(b - a, d - a);
+        const auto side = [eps](float v) { return v > eps ? 1 : (v < -eps ? -1 : 0); };
+        return side(d1) * side(d2) < 0 && side(d3) * side(d4) < 0;
+    };
+    // Sommet strictement à l'intérieur d'un triangle (chevauchement).
+    const auto inTri = [&](const Vec2& p, const Vec2& a, const Vec2& b, const Vec2& c) {
+        const float eps = 1e-4f;
+        const float d1 = area2(a, b, p);
+        const float d2 = area2(b, c, p);
+        const float d3 = area2(c, a, p);
+        return (d1 > eps && d2 > eps && d3 > eps) || (d1 < -eps && d2 < -eps && d3 < -eps);
+    };
+
+    // Cas pathologique : couronne à 3 côtés extérieurs dont des sommets
+    // intérieurs tombent exactement sur les cordes extérieures (m pair, trou à
+    // mi-rayon) — la bande y a une largeur nulle et le zipper émet des
+    // triangles d'aire nulle (jusqu'à 3 : 60°, 180°, 300°). Ces triangles ne
+    // se voient pas ; on les tolère (non inversés), mais ils sont exclus des
+    // contrôles de croisement (bruit flottant des arêtes colinéaires).
+    const float kEpsDeg = 1e-5f * 4.0f;  // ~ seuil d'aire (x2) d'un triangle pincé
+    for (int n : {3, 5, 8, 16, 32, 64}) {
+        for (int m : {3, 5, 8, 16, 64}) {
+            const std::vector<Vec2> outer = rim(n, 2.0f);
+            const std::vector<Vec2> inner = rim(m, 1.0f);
+            std::vector<int> band;
+            triangulateBand(outer, inner, band);
+            CHECK((int)band.size() == (n + m) * 6);
+            if ((int)band.size() != (n + m) * 6) continue;
+
+            std::vector<std::vector<Vec2>> tris;
+            tris.reserve((size_t)n + m);
+            std::vector<float> areas;
+            areas.reserve((size_t)n + m);
+            const auto pt = [&](int ring, int idx) -> const Vec2& {
+                return ring == 0 ? outer[idx] : inner[idx];
+            };
+            for (size_t k = 0; k + 5 < band.size(); k += 6) {
+                const Vec2 a = pt(band[k], band[k + 1]);
+                const Vec2 b = pt(band[k + 2], band[k + 3]);
+                const Vec2 c = pt(band[k + 4], band[k + 5]);
+                tris.push_back({a, b, c});
+                areas.push_back(area2(a, b, c));
+            }
+
+            // Orientation : jamais de face franchement inversée ; au plus 3
+            // triangles pincés (aire ~ nulle) dans le cas pathologique.
+            int pos = 0, neg = 0, deg = 0;
+            for (float s : areas) {
+                if (std::fabs(s) <= kEpsDeg) ++deg;
+                else if (s > 0) ++pos;
+                else ++neg;
+            }
+            CHECK(neg == 0);
+            CHECK(deg <= 3);
+            CHECK(pos > 0);
+
+            // Aucune paire de triangles (non dégénérés) ne se croise ni ne se
+            // chevauche.
+            for (size_t t1 = 0; t1 < tris.size(); ++t1) {
+                if (std::fabs(areas[t1]) <= kEpsDeg) continue;
+                for (size_t t2 = t1 + 1; t2 < tris.size(); ++t2) {
+                    if (std::fabs(areas[t2]) <= kEpsDeg) continue;
+                    const Vec2& a = tris[t1][0];
+                    const Vec2& b = tris[t1][1];
+                    const Vec2& c = tris[t1][2];
+                    const Vec2& p = tris[t2][0];
+                    const Vec2& q = tris[t2][1];
+                    const Vec2& r = tris[t2][2];
+                    const Vec2 e1[3][2] = {{a, b}, {b, c}, {c, a}};
+                    const Vec2 e2[3][2] = {{p, q}, {q, r}, {r, p}};
+                    for (int i = 0; i < 3; ++i)
+                        for (int j = 0; j < 3; ++j)
+                            CHECK(!segCross(e1[i][0], e1[i][1], e2[j][0], e2[j][1]));
+                    CHECK(!(inTri(p, a, b, c) || inTri(q, a, b, c) || inTri(r, a, b, c)));
+                    CHECK(!(inTri(a, p, q, r) || inTri(b, p, q, r) || inTri(c, p, q, r)));
+                }
+            }
+
+            // Couverture complète de la bande (somme des aires) : ni trou
+            // rempli, ni zone manquante.
+            float outerArea = 0.0f;
+            for (int i = 0; i < n; ++i) outerArea += cross(outer[i], outer[(i + 1) % n]);
+            float innerArea = 0.0f;
+            for (int i = 0; i < m; ++i) innerArea += cross(inner[i], inner[(i + 1) % m]);
+            const float bandArea = std::fabs(outerArea - innerArea) * 0.5f;
+            float triArea = 0.0f;
+            for (size_t i = 0; i < tris.size(); ++i)
+                triArea += std::fabs(areas[i]) * 0.5f;
+            CHECK(std::fabs(triArea - bandArea) < 1e-3f * std::max(1.0f, bandArea));
+        }
+    }
+
+    // Boucles trop petites : rien n'est émis.
+    {
+        std::vector<int> band;
+        triangulateBand({{0, 0}, {1, 0}}, {{0, 0}, {1, 0}}, band);
+        CHECK(band.empty());
+    }
+}
+
 static void testMeshOps() {
     std::printf("[opérations mesh]\n");
 
@@ -452,7 +582,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 64);  // toutes les icônes du dossier assets/
+    CHECK(n == 65);  // toutes les icônes du dossier assets/
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -646,6 +776,7 @@ static void testPngExport() {
 
 int main() {
     testTriangulation();
+    testCrownBand();
     testMeshOps();
     testRoundTrip();
     testSpecFormats();

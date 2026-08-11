@@ -69,6 +69,7 @@ struct PrefsData {
     std::vector<Color> palette;
     float brushOpacity = 0.45f;
     int circleSides = 16;
+    int crownInnerSides = 8;             // côtés intérieurs de la couronne (4.2)
     float edgePickTol = 7.0f;            // distance de détection des segments (px)
     int mergeRadius = 20;                 // rayon de fusion par déplacement, px (8..64)
     std::vector<std::string> locations;   // emplacements d'enregistrement (20 max)

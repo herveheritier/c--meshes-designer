@@ -52,6 +52,7 @@ const char* toolName(Tool t) {
         case Tool::Hexagon: return "hexagone";
         case Tool::Star: return "étoile";
         case Tool::Ring: return "anneau";
+        case Tool::Crown: return "couronne";
         default: return "?";
     }
 }
@@ -300,7 +301,7 @@ void App::update(float dt) {
         return;
     }
 
-    // --- Molette : rotation globale (AltGr), côtés du cercle/anneau,
+    // --- Molette : rotation globale (AltGr), côtés du cercle/anneau/couronne,
     // rotation de la sélection, ou zoom ---
     if (io.MouseWheel != 0.0f && viewportHovered) {
         if (altGrDown() && drag_.kind == DragKind::None) {
@@ -312,9 +313,26 @@ void App::update(float dt) {
                 rotUndoPushed_ = true;
             }
             rotateAllPlanesAround(mouseWorld, 5.0f * io.MouseWheel);
-        } else if (isShapeTool(tool) &&
-                   (tool == Tool::Circle || tool == Tool::Ring || tool == Tool::Star)) {
-            circleSides = std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+        } else if (isShapeTool(tool) && (tool == Tool::Circle || tool == Tool::Ring ||
+                                         tool == Tool::Star || tool == Tool::Crown)) {
+            // Couronne : la molette suit la phase du tracé — tant que le rayon
+            // n'est pas verrouillé (avant le 2e clic) elle règle les côtés
+            // EXTÉRIEURS, après le 2e clic les côtés INTÉRIEURS. Maj+molette
+            // force l'autre jeu de côtés (utile avant le 1er clic, en barre
+            // d'outils ou dans le menu des formes).
+            if (tool == Tool::Crown) {
+                const bool innerPhase = crownInnerPhase();
+                const bool adjustInner = io.KeyShift != innerPhase;
+                if (adjustInner)
+                    crownInnerSides =
+                        std::clamp(crownInnerSides + (int)std::lround(io.MouseWheel), 3, 64);
+                else
+                    circleSides =
+                        std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                statusCrown();
+            } else {
+                circleSides = std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+            }
         } else if (drag_.kind == DragKind::None && tool == Tool::Select &&
                    selectionVertices().size() >= 2) {
             if (!rotUndoPushed_) {
@@ -500,7 +518,10 @@ void App::update(float dt) {
                 drag_.shapeStage = 1;
                 drag_.shapeAnchor = snappedPoint(mouseWorld);
                 drag_.shapeCur = drag_.shapeAnchor;
-                setStatus("1er clic posé — déplacez la souris, puis validez au 2e clic");
+                setStatus(tool == Tool::Crown
+                              ? "1er clic posé — déplacez la souris (molette : côtés "
+                                "extérieurs), 2e clic verrouille le rayon"
+                              : "1er clic posé — déplacez la souris, puis validez au 2e clic");
             } else if (drag_.kind == DragKind::Shape) {
                 advanceShapeClick(mouseWorld);
             }
@@ -1155,25 +1176,32 @@ void App::startShapeTool(Tool t) {
     tool = t;
     drag_.kind = DragKind::None;
     drag_.shapeStage = 0;
-    setStatus("Forme « " + std::string(toolName(t)) +
-              " » armée — 1er clic : ancre, puis déplacez la souris, 2e clic : valider");
+    const bool threeClicks = t == Tool::Star || t == Tool::Ring || t == Tool::Crown;
+    setStatus("Forme « " + std::string(toolName(t)) + " » armée — 1er clic : ancre, puis "
+              "déplacez la souris, " + std::string(threeClicks ? "3e" : "2e") +
+              " clic : valider");
     logMsg("Forme « " + std::string(toolName(t)) + " » armée");
 }
 
 void App::advanceShapeClick(const Vec2& world) {
     if (drag_.shapeStage == 1) {
         drag_.shapeCur = snappedPoint(world);
-        if (tool == Tool::Star || tool == Tool::Ring) {
+        if (tool == Tool::Star || tool == Tool::Ring || tool == Tool::Crown) {
             const Vec2 d = drag_.shapeCur - drag_.shapeAnchor;
             drag_.shapeRadius = length(d);
             drag_.shapeAngle = std::atan2(d.y, d.x);
             drag_.shapeInner = 0.5f;
             drag_.shapeStage = 2;
-            setStatus(tool == Tool::Star
-                          ? "Étoile : 2e clic verrouille rayon et orientation — "
-                            "déplacez pour la profondeur, 3e clic valide"
-                          : "Anneau : 2e clic verrouille — déplacez pour la taille du trou, "
-                            "3e clic valide (molette : côtés)");
+            if (tool == Tool::Star)
+                setStatus("Étoile : 2e clic verrouille rayon et orientation — "
+                          "déplacez pour la profondeur, 3e clic valide");
+            else if (tool == Tool::Crown)
+                setStatus("Couronne : 2e clic verrouille — distance : taille du trou, "
+                          "angle du curseur : orientation intérieure · 3e clic valide "
+                          "(molette : intérieurs, Maj+molette : extérieurs)");
+            else
+                setStatus("Anneau : 2e clic verrouille — déplacez pour la taille du trou, "
+                          "3e clic valide (molette : côtés)");
         } else {
             completeShape();
             drag_.kind = DragKind::None;
@@ -1201,10 +1229,12 @@ void App::completeShape() {
     const Vec2& a = drag_.shapeAnchor;
     const Vec2& c = drag_.shapeCur;
     const Vec2 d = c - a;
-    // Anneau et étoile : le 2e clic VERROUILLE le rayon et l'orientation ; en
-    // phase 3, le curseur ne règle plus que la taille du trou (anneau) ou la
-    // profondeur (étoile) — le rayon créé doit rester celui verrouillé.
-    const bool locked = drag_.shapeStage >= 2 && (tool == Tool::Ring || tool == Tool::Star);
+    // Anneau, couronne et étoile : le 2e clic VERROUILLE le rayon et
+    // l'orientation ; en phase 3, le curseur ne règle plus que la taille du trou
+    // (anneau/couronne) ou la profondeur (étoile) — le rayon créé doit rester
+    // celui verrouillé.
+    const bool locked = drag_.shapeStage >= 2 &&
+                        (tool == Tool::Ring || tool == Tool::Crown || tool == Tool::Star);
     const float rad = locked ? drag_.shapeRadius : length(d);
     const float ang = locked ? drag_.shapeAngle : std::atan2(d.y, d.x);
 
@@ -1243,6 +1273,15 @@ void App::completeShape() {
         case Tool::Hexagon: addFan(a, rad, ang, 6); break;
         case Tool::Star: addStar(a, rad, ang, drag_.shapeInner, circleSides); break;
         case Tool::Ring: addRing(a, rad, ang, drag_.shapeInner, circleSides); break;
+        case Tool::Crown: {
+            // La forme intérieure s'oriente comme la forme extérieure l'a été au
+            // 2e clic : l'angle du curseur autour de l'ancre règle sa rotation
+            // (la distance du curseur règle la taille du trou).
+            const float innerAng = std::atan2(d.y, d.x);
+            addCrown(a, rad, ang, drag_.shapeInner, circleSides, crownInnerSides,
+                     innerAng);
+            break;
+        }
         default: break;
     }
     setStatus("Forme « " + std::string(toolName(tool)) + " » créée");
@@ -1312,6 +1351,47 @@ void App::addRing(const Vec2& center, float radius, float angle, float hole, int
         scene.activePlane().addFace({outer[i], outer[j], inner[j]});
         scene.activePlane().addFace({outer[i], inner[j], inner[i]});
     }
+}
+
+// --- Couronne (4.2) : anneau dont les côtés intérieurs et extérieurs sont
+// indépendants. La bande entre les deux polygones réguliers (n et m sommets)
+// est triangulée par « zipper » sans croisement ni chevauchement (voir
+// triangulateBand dans triangulate.cpp) ; chaque triangle est émis comme un
+// sextuplet (boucle, index) : 0 = extérieur, 1 = intérieur.
+void App::addCrown(const Vec2& center, float radius, float angle, float hole,
+                   int outerSides, int innerSides, float innerAngle) {
+    // innerAngle : angle de départ du polygone INTÉRIEUR, indépendant de celui
+    // de la forme extérieure (orientée au 2e clic) — le curseur règle cette
+    // rotation pendant la phase 2 du tracé.
+    outerSides = std::max(outerSides, 3);
+    innerSides = std::max(innerSides, 3);
+    std::vector<Vec2> oPts, iPts;
+    std::vector<int> outer, inner;
+    oPts.reserve(outerSides);
+    iPts.reserve(innerSides);
+    outer.reserve(outerSides);
+    inner.reserve(innerSides);
+    for (int i = 0; i < outerSides; ++i) {
+        const float a = angle + (float)i * 2.0f * kPi / (float)outerSides;
+        const Vec2 p{center.x + std::cos(a) * radius, center.y + std::sin(a) * radius};
+        oPts.push_back(p);
+        outer.push_back(scene.activePlane().addVertex(p));
+    }
+    for (int i = 0; i < innerSides; ++i) {
+        const float a = innerAngle + (float)i * 2.0f * kPi / (float)innerSides;
+        const Vec2 p{center.x + std::cos(a) * hole * radius,
+                     center.y + std::sin(a) * hole * radius};
+        iPts.push_back(p);
+        inner.push_back(scene.activePlane().addVertex(p));
+    }
+    std::vector<int> band;
+    triangulateBand(oPts, iPts, band);
+    auto get = [&](int ring, int idx) -> int {
+        return ring == 0 ? outer[idx] : inner[idx];
+    };
+    for (size_t k = 0; k + 5 < band.size(); k += 6)
+        scene.activePlane().addFace({get(band[k], band[k + 1]), get(band[k + 2], band[k + 3]),
+                                     get(band[k + 4], band[k + 5])});
 }
 
 // ---------------------------------------------------------------------------
@@ -2198,6 +2278,7 @@ void App::savePrefsFile() {
     p.palette = palette;
     p.brushOpacity = brushOpacity;
     p.circleSides = circleSides;
+    p.crownInnerSides = crownInnerSides;
     p.edgePickTol = edgePickTol;
     p.mergeRadius = mergeRadius;
     p.locations = saveLocations;
@@ -2218,6 +2299,7 @@ void App::loadPrefsFile() {
     p.palette = palette;
     p.brushOpacity = brushOpacity;
     p.circleSides = circleSides;
+    p.crownInnerSides = crownInnerSides;
     p.edgePickTol = edgePickTol;
     p.locations = saveLocations;
     const IoResult r = loadPrefsJson(p, prefsDir() + "prefs.json");
@@ -2225,6 +2307,7 @@ void App::loadPrefsFile() {
     if (!p.palette.empty()) palette = p.palette;
     brushOpacity = p.brushOpacity;
     circleSides = p.circleSides;
+    crownInnerSides = std::clamp(p.crownInnerSides, 3, 64);
     edgePickTol = std::clamp(p.edgePickTol, 2.0f, 30.0f);
     mergeRadius = std::clamp(p.mergeRadius, 8, 64);
     saveLocations = p.locations;
@@ -2387,6 +2470,17 @@ void App::setStatus(const std::string& msg) {
     setToast(msg, 3.0f);
 }
 
+void App::statusCrown() {
+    // Le libellé suit la phase du tracé : tant que le rayon n'est pas verrouillé
+    // (avant le 2e clic), la molette règle les côtés extérieurs, puis les
+    // intérieurs après le 2e clic (Maj+molette force l'autre jeu de côtés).
+    const bool innerPhase = crownInnerPhase();
+    setStatus("Couronne : " + std::to_string(circleSides) + " ext. / " +
+              std::to_string(crownInnerSides) + " int. — molette : " +
+              (innerPhase ? "intérieurs, Maj+molette : extérieurs"
+                          : "extérieurs, Maj+molette : intérieurs"));
+}
+
 void App::setToast(const std::string& msg, float secs) {
     toast = msg;
     toastAge = secs;
@@ -2405,13 +2499,20 @@ void App::updateHoverHelp(const Vec2& mouseWorld) {
     if (drag_.kind == DragKind::Shape) {
         const char* msg = nullptr;
         if (drag_.shapeStage == 1) {
-            msg = "1er clic posé — déplacez la souris, puis validez au 2e clic";
+            msg = (tool == Tool::Crown)
+                      ? "1er clic posé — déplacez la souris (molette : côtés extérieurs), "
+                        "2e clic verrouille le rayon"
+                      : "1er clic posé — déplacez la souris, puis validez au 2e clic";
         } else if (drag_.shapeStage >= 2) {
             msg = (tool == Tool::Star)
                       ? "Étoile : 2e clic verrouille rayon et orientation — "
                         "déplacez pour la profondeur, 3e clic valide"
-                      : "Anneau : 2e clic verrouille — déplacez pour la taille du trou, "
-                        "3e clic valide (molette : côtés)";
+                      : (tool == Tool::Crown)
+                            ? "Couronne : 2e clic verrouille — distance : taille du trou, "
+                              "angle du curseur : orientation intérieure · 3e clic valide "
+                              "(molette : intérieurs, Maj+molette : extérieurs)"
+                            : "Anneau : 2e clic verrouille — déplacez pour la taille du trou, "
+                              "3e clic valide (molette : côtés)";
         }
         if (msg) {
             setToast(msg, 0.5f);  // réaffiché tant que le tracé dure
@@ -2850,8 +2951,9 @@ void App::drawShapeOutline() {
     const Vec2& c = drag_.shapeCur;
     const Vec2 d = c - a;
     // Comme dans completeShape : une fois verrouillé (2e clic), le rayon et
-    // l'orientation de l'anneau/étoile ne bougent plus avec le curseur.
-    const bool locked = drag_.shapeStage >= 2 && (tool == Tool::Ring || tool == Tool::Star);
+    // l'orientation de l'anneau/couronne/étoile ne bougent plus avec le curseur.
+    const bool locked = drag_.shapeStage >= 2 &&
+                        (tool == Tool::Ring || tool == Tool::Crown || tool == Tool::Star);
     const float rad = locked ? drag_.shapeRadius : length(d);
     const float ang = locked ? drag_.shapeAngle : std::atan2(d.y, d.x);
     std::vector<Vec2> poly, fill, segs;
@@ -2974,6 +3076,48 @@ void App::drawShapeOutline() {
             rimPts(circleSides, rad, ang, poly);
             drawPolygon(poly);
             rimPts(circleSides, rad * hole, ang, poly);
+            drawPolygon(poly);
+            return;
+        }
+        case Tool::Crown: {
+            const float hole = drag_.shapeStage >= 2 ? drag_.shapeInner : 0.5f;
+            // La forme intérieure suit l'angle du curseur pendant la phase 2
+            // (comme la forme extérieure s'orientait au 2e clic) ; en phase 1,
+            // elle reste alignée sur la forme extérieure.
+            const float innerAng = drag_.shapeStage >= 2
+                                       ? std::atan2(c.y - a.y, c.x - a.x)
+                                       : ang;
+            const int on = circleSides, inn = crownInnerSides;
+            // Bandes de points (sans sommet de fermeture : indices modulo).
+            std::vector<Vec2> oPts, iPts;
+            oPts.reserve(on);
+            iPts.reserve(inn);
+            for (int i = 0; i < on; ++i) {
+                const float aa = ang + (float)i * 2.0f * kPi / (float)on;
+                oPts.push_back({a.x + std::cos(aa) * rad, a.y + std::sin(aa) * rad});
+            }
+            for (int i = 0; i < inn; ++i) {
+                const float aa = innerAng + (float)i * 2.0f * kPi / (float)inn;
+                iPts.push_back({a.x + std::cos(aa) * rad * hole,
+                                a.y + std::sin(aa) * rad * hole});
+            }
+            // Remplissage : même triangulation « zipper » que addCrown.
+            std::vector<int> band;
+            triangulateBand(oPts, iPts, band);
+            fill.clear();
+            auto pt = [&](int ring, int idx) -> const Vec2& {
+                return ring == 0 ? oPts[idx] : iPts[idx];
+            };
+            for (size_t k = 0; k + 5 < band.size(); k += 6) {
+                fill.push_back(pt(band[k], band[k + 1]));
+                fill.push_back(pt(band[k + 2], band[k + 3]));
+                fill.push_back(pt(band[k + 4], band[k + 5]));
+            }
+            renderer.drawTriangles(fill, kPreviewFill);
+            // Contours : périmètre extérieur puis pourtour du trou (orienté).
+            rimPts(on, rad, ang, poly);
+            drawPolygon(poly);
+            rimPts(inn, rad * hole, innerAng, poly);
             drawPolygon(poly);
             return;
         }

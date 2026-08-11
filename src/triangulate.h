@@ -16,6 +16,17 @@ namespace mesh {
 // dans ce cas un repli en éventail est tout de même émis.
 bool triangulatePolygon(const std::vector<Vec2>& pts, std::vector<int>& tris);
 
+// Triangule la bande entre deux boucles de sommets ordonnées dans le même
+// sens (les polygones réguliers concentriques d'une couronne). Produit
+// exactement n+m triangles, sans croisement ni chevauchement, tous orientés
+// dans le même sens ; chaque triangle est émis comme un sextuplet
+// (ring, idx, ring, idx, ring, idx) où ring ∈ {0, 1} désigne la boucle
+// (0 = extérieure, 1 = intérieure) et idx la position dans la boucle.
+// N'émet rien si une boucle a moins de 3 sommets.
+void triangulateBand(const std::vector<Vec2>& outer, const std::vector<Vec2>& inner,
+                     std::vector<int>& tris);
+
+
 // Vrai si p est à l'intérieur (ou sur le bord) du triangle (a,b,c).
 bool pointInTriangle(const Vec2& p, const Vec2& a, const Vec2& b, const Vec2& c);
 

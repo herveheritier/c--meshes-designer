@@ -17,7 +17,7 @@ namespace mesh {
 // Cible d'édition : sommet / segment / triangle (4.4).
 enum class SelMode { Vertex, Edge, Face };
 // Outils : sélection + formes prédéfinies (4.2).
-enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring };
+enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown };
 inline bool isShapeTool(Tool t) { return t != Tool::Select; }
 
 enum class ReticleState { Off, Simple, Symmetric };
@@ -95,6 +95,7 @@ public:
 
     // --- Formes prédéfinies ---
     int circleSides = 16;               // côtés du cercle/anneau/étoile (molette, mémorisé)
+    int crownInnerSides = 8;            // côtés INTÉRIEURS de la couronne (molette+Maj, mémorisé)
 
     // --- Outil mesure ---
     bool measureActive = false;
@@ -305,6 +306,9 @@ public:
     void setStatus(const std::string& msg);
     void setToast(const std::string& msg, float secs = 3.0f);
     void logMsg(const std::string& msg);
+    // Statut « Couronne : N ext. / M int. — molette : extérieurs, Maj+molette :
+    // intérieurs » (partagé par le canvas, le bouton et le menu des formes).
+    void statusCrown();
     // Aide prospective au survol (spec 13) : rafraîchit le toast avec le geste
     // possible sous le curseur, sans rafraîchissement continu.
     void updateHoverHelp(const Vec2& mouseWorld);
@@ -331,6 +335,14 @@ public:
     Vec2 viewportVec2() const { return {viewportSize.x, viewportSize.y}; }
     bool isShapeTracing() const { return drag_.kind == DragKind::Shape; }
     bool isShapeArmed() const { return isShapeTool(tool); }
+    // Phase « intérieurs » de la couronne : la molette règle les côtés
+    // intérieurs une fois le rayon verrouillé (2e clic posé) ; avant, elle
+    // règle les extérieurs. Partagé par le canvas, la barre d'outils et le
+    // menu des formes (4.2).
+    bool crownInnerPhase() const { return isShapeTracing() && drag_.shapeStage >= 2; }
+    // Ancre du tracé de forme en cours (monde) — pour le badge de compteurs de
+    // la couronne affiché près de la forme pendant le tracé (4.2).
+    Vec2 shapeAnchor() const { return drag_.shapeAnchor; }
 
     // --- Picking ---
     int pickVertex(const Vec2& world, float tolPx) const;
@@ -385,6 +397,8 @@ private:
     void addQuad(const Vec2& p0, const Vec2& p1);
     void addStar(const Vec2& center, float radius, float angle, float depth, int points);
     void addRing(const Vec2& center, float radius, float angle, float hole, int sides);
+    void addCrown(const Vec2& center, float radius, float angle, float hole,
+                  int outerSides, int innerSides, float innerAngle);
 
     // Sélection clic droit
     bool pickNearestOnly(const Vec2& world);

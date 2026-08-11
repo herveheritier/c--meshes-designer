@@ -405,6 +405,7 @@ void handleShortcuts(App& app) {
     toggleShape(Tool::Hexagon, ImGuiKey_H, "hexagone");
     toggleShape(Tool::Star, ImGuiKey_E, "étoile");
     toggleShape(Tool::Ring, ImGuiKey_A, "anneau");
+    toggleShape(Tool::Crown, ImGuiKey_O, "couronne");
 
     // Rotation précise : saisie d'un angle exact (Alt+R).
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R))
@@ -698,22 +699,41 @@ void toolbar(App& app) {
         ImGui::SameLine();
         if (toolBtnIcon("shapes",
                         "Formes prédéfinies — clic : menu contextuel "
-                        "(cercle, carré, étoile, anneau…) · molette : côtés/pointes "
-                        "si une forme à côtés est armée",
+                        "(cercle, carré, étoile, anneau, couronne…) · molette : "
+                        "côtés/pointes si une forme à côtés est armée",
                         app.isShapeArmed(), kGreen, false))
             ImGui::OpenPopup("##shapesmenu");
         // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
+        // Couronne : la molette suit la phase du tracé — extérieurs tant que le
+        // rayon n'est pas verrouillé, intérieurs après le 2e clic ; Maj+molette
+        // force l'autre jeu de côtés.
         if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
-            (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star)) {
-            app.circleSides =
-                std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-            app.setStatus("Nombre de " +
-                          std::string(app.tool == Tool::Star ? "pointes de l'étoile"
-                                                            : "côtés du " +
-                                                                  std::string(app.tool == Tool::Circle
-                                                                                  ? "cercle"
-                                                                                  : "anneau")) +
-                          " : " + std::to_string(app.circleSides));
+            (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star ||
+             app.tool == Tool::Crown)) {
+            // La molette suit la phase du tracé (comme le canvas) : extérieurs
+            // tant que le rayon n'est pas verrouillé, intérieurs après le 2e
+            // clic ; Maj+molette force l'autre jeu de côtés.
+            if (app.tool == Tool::Crown) {
+                const bool adjustInner = io.KeyShift != app.crownInnerPhase();
+                if (adjustInner)
+                    app.crownInnerSides =
+                        std::clamp(app.crownInnerSides + (int)std::lround(io.MouseWheel), 3, 64);
+                else
+                    app.circleSides =
+                        std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                app.statusCrown();
+            } else {
+                app.circleSides =
+                    std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                app.setStatus("Nombre de " +
+                              std::string(app.tool == Tool::Star
+                                              ? "pointes de l'étoile"
+                                              : "côtés du " +
+                                                    std::string(app.tool == Tool::Circle
+                                                                    ? "cercle"
+                                                                    : "anneau")) +
+                              " : " + std::to_string(app.circleSides));
+            }
         }
         shapesMenu(app);
     }
@@ -1125,6 +1145,51 @@ void viewport(App& app) {
         }
     }
 
+    // Compteurs « ext. / int. » de la couronne : badge en direct près de
+    // l'ancre pendant le tracé (4.2). Le nombre réglé par la molette (selon la
+    // phase : extérieurs avant le 2e clic, intérieurs après — Maj inverse) est
+    // mis en évidence en cyan, l'autre reste estompé.
+    if (app.tool == Tool::Crown && app.isShapeTracing()) {
+        const Vec2 as = app.camera.worldToScreen(app.shapeAnchor(),
+                                                 app.viewportVec2());
+        const bool innerPhase = app.crownInnerPhase();
+        char extBuf[12], intBuf[12];
+        std::snprintf(extBuf, sizeof(extBuf), "%d ext.", app.circleSides);
+        std::snprintf(intBuf, sizeof(intBuf), "%d int.", app.crownInnerSides);
+        const ImVec2 we = ImGui::CalcTextSize(extBuf);
+        const ImVec2 ws = ImGui::CalcTextSize(" · ");
+        const ImVec2 wi = ImGui::CalcTextSize(intBuf);
+        const float padX = 10.0f;
+        const float padY = 5.0f;
+        const float bw = padX * 2.0f + we.x + ws.x + wi.x;
+        const float bh = padY * 2.0f + std::max(we.y, wi.y);
+        // Position : à droite de l'ancre et légèrement au-dessus, mais toujours
+        // dans le viewport (ancre éventuellement hors écran).
+        const float bx = std::max(pos.x + 6.0f,
+                                  std::min(pos.x + as.x + 16.0f,
+                                           pos.x + size.x - bw - 6.0f));
+        const float by = std::max(pos.y + 6.0f,
+                                  std::min(pos.y + as.y - bh - 16.0f,
+                                           pos.y + size.y - bh - 6.0f));
+        dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                          IM_COL32(18, 24, 32, 220), 5.0f);
+        dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                    IM_COL32(90, 160, 255, 140), 5.0f);
+        const float tx = bx + padX;
+        const float ty = by + padY;
+        const ImU32 colOn = IM_COL32(130, 235, 255, 255);
+        const ImU32 colOff = IM_COL32(170, 180, 200, 170);
+        if (innerPhase) {
+            dl->AddText(ImVec2(tx, ty), colOff, extBuf);
+            dl->AddText(ImVec2(tx + we.x, ty), kDimCol, " · ");
+            dl->AddText(ImVec2(tx + we.x + ws.x, ty), colOn, intBuf);
+        } else {
+            dl->AddText(ImVec2(tx, ty), colOn, extBuf);
+            dl->AddText(ImVec2(tx + we.x, ty), kDimCol, " · ");
+            dl->AddText(ImVec2(tx + we.x + ws.x, ty), colOff, intBuf);
+        }
+    }
+
     // HUD bas-gauche (masqué en prévisualisation et en kiosque).
     if (app.preview == PreviewMode::Off && !app.kiosk) hud(app, dl, size);
 }
@@ -1161,6 +1226,11 @@ void shapesMenu(App& app) {
          Tool::Star},
         {"shape-annulus", "Anneau", "Anneau — 3 clics (centre, rayon, trou)",
          Tool::Ring},
+        {"shape-crown", "Couronne",
+         "Couronne — 3 clics (centre, rayon, trou) ; après le 2e clic, l'angle "
+         "du curseur oriente la forme intérieure ; côtés extérieurs et "
+         "intérieurs indépendants (molette / Maj+molette)",
+         Tool::Crown},
     };
     for (const auto& s : shapes) {
         if (toolBtnIcon(s.icon, s.tip, app.tool == s.tool, kGreen, false, s.label)) {
@@ -1168,32 +1238,56 @@ void shapesMenu(App& app) {
             ImGui::CloseCurrentPopup();
         }
         // 4.2 : la molette sur la ligne Cercle / Anneau / Étoile règle le
-        // nombre de côtés (comme sur le canvas).
+        // nombre de côtés (comme sur le canvas) ; pour la Couronne, la molette
+        // suit la phase du tracé — extérieurs tant que le rayon n'est pas
+        // verrouillé, intérieurs après le 2e clic (Maj+molette : l'autre jeu).
         const bool sidesShape =
-            s.tool == Tool::Circle || s.tool == Tool::Ring || s.tool == Tool::Star;
+            s.tool == Tool::Circle || s.tool == Tool::Ring || s.tool == Tool::Star ||
+            s.tool == Tool::Crown;
         if (sidesShape) {
             if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-                app.circleSides =
-                    std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-                app.setStatus("Nombre de " +
-                              std::string(s.tool == Tool::Star ? "pointes de l'étoile"
-                                                               : "côtés du " +
-                                                                     std::string(s.tool == Tool::Circle
-                                                                                     ? "cercle"
-                                                                                     : "anneau")) +
-                              " : " + std::to_string(app.circleSides));
+                // La molette suit la phase du tracé (comme le canvas).
+                if (s.tool == Tool::Crown) {
+                    const bool adjustInner = io.KeyShift != app.crownInnerPhase();
+                    if (adjustInner)
+                        app.crownInnerSides =
+                            std::clamp(app.crownInnerSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    else
+                        app.circleSides =
+                            std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    app.statusCrown();
+                } else {
+                    app.circleSides =
+                        std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    app.setStatus("Nombre de " +
+                                  std::string(s.tool == Tool::Star
+                                                  ? "pointes de l'étoile"
+                                                  : "côtés du " +
+                                                        std::string(s.tool == Tool::Circle
+                                                                        ? "cercle"
+                                                                        : "anneau")) +
+                                  " : " + std::to_string(app.circleSides));
+                }
             }
             ImGui::SameLine();
             char sidesbuf[24];
-            std::snprintf(sidesbuf, sizeof(sidesbuf), "%d %s", app.circleSides,
-                          s.tool == Tool::Star ? "pointes" : "côtés");
-            valueLabel(sidesbuf, ImGui::CalcTextSize("64 côtés").x);
+            float labelW;
+            if (s.tool == Tool::Crown) {
+                std::snprintf(sidesbuf, sizeof(sidesbuf), "%d / %d côtés",
+                              app.circleSides, app.crownInnerSides);
+                labelW = ImGui::CalcTextSize("64 / 64 côtés").x;
+            } else {
+                std::snprintf(sidesbuf, sizeof(sidesbuf), "%d %s", app.circleSides,
+                              s.tool == Tool::Star ? "pointes" : "côtés");
+                labelW = ImGui::CalcTextSize("64 côtés").x;
+            }
+            valueLabel(sidesbuf, labelW);
         }
     }
     ImGui::Separator();
-    ImGui::TextDisabled("2 clics : ancre puis valider · étoile et anneau : 3 clics.");
-    ImGui::TextDisabled("Molette sur une ligne (cercle/anneau/étoile) : nombre de côtés.");
-    ImGui::TextDisabled("Raccourcis : C R T Q N H É A · Retour arrière : annuler le tracé.");
+    ImGui::TextDisabled("2 clics : ancre puis valider · étoile, anneau et couronne : 3 clics.");
+    ImGui::TextDisabled("Molette (cercle/anneau) : côtés · couronne : extérieurs puis intérieurs pendant le tracé (Maj+molette : l'autre jeu).");
+    ImGui::TextDisabled("Raccourcis : C R T Q N H É A O · Retour arrière : annuler le tracé.");
     ImGui::EndPopup();
 }
 
@@ -1419,7 +1513,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Ctrl+0 : zoom 100 %% recentré");
         ImGui::BulletText("G : grille · Y : réticule · F : compteur de redessins · P : prévisualiser");
         ImGui::BulletText("Accueil : tout afficher · Ctrl+F : cadrer la sélection (zoom automatique)");
-        ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau");
+        ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau · O couronne");
         ImGui::BulletText("Ctrl+D : dupliquer la sélection · Ctrl+A : tout sélectionner · Ctrl+I : inverser la sélection");
         ImGui::BulletText("M / Maj+M : miroir X / Y de la sélection · Alt+S : mise à l'échelle précise (facteur)");
         ImGui::BulletText("Ctrl+M : outil mesure (2 clics : distance au HUD) · Alt+D : dupliquer le plan actif");
