@@ -404,8 +404,9 @@ void toolbar(App& app) {
     }
     ImGui::SameLine();
     // Cellule du pas de grille à largeur FIXE : sert aussi d'INDICATEUR
-    // d'aimantation. Active : valeur normale (gris). Désactivée : icône
-    // « aimant barré » rouge + valeur en ambre — sans décaler la barre.
+    // d'aimantation. Active : icône « aimant » verte + valeur normale.
+    // Désactivée : icône « aimant barré » rouge + valeur en ambre — sans
+    // décaler la barre ni déplacer le texte d'un état à l'autre.
     {
         char stepbuf[16];
         std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
@@ -415,13 +416,13 @@ void toolbar(App& app) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 ts = ImGui::CalcTextSize(stepbuf);
         const float cy = cmin.y + btnFrameHeight() * 0.5f;
-        const float iconW = app.snapOn ? 0.0f : 16.0f;
+        const float iconW = 16.0f;
         float cx = cmin.x + (cellW - ts.x - iconW) * 0.5f;
-        if (!app.snapOn) {
-            drawSvgIconNamed(dl, "magnet-off", ImVec2(cx, cy - 7.0f), 14.0f,
-                             IM_COL32(245, 115, 105, 250));
-            cx += iconW;
-        }
+        drawSvgIconNamed(dl, app.snapOn ? "magnet-on" : "magnet-off",
+                         ImVec2(cx, cy - 7.0f), 14.0f,
+                         app.snapOn ? IM_COL32(90, 190, 120, 255)
+                                    : IM_COL32(245, 115, 105, 250));
+        cx += iconW;
         dl->AddText(ImVec2(cx, cy - ts.y * 0.5f),
                     app.snapOn ? kDimCol : IM_COL32(245, 190, 90, 245), stepbuf);
     }
