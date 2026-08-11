@@ -94,9 +94,15 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
     const bool hasText = text && text[0];
     const float iconSize = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
     const ImVec2 ts = hasText ? ImGui::CalcTextSize(text) : ImVec2(0, 0);
+    // Largeur du contenu (icône + espace + libellé) : une largeur fixe ne doit
+    // JAMAIS être plus étroite que le contenu, sinon le texte déborde du cadre
+    // (ex. « Quitter quand même » à 150 px). La garde max() ne change rien aux
+    // boutons qui tiennent déjà, mais protège tous les dialogues quelle que
+    // soit la police chargée sur la plateforme.
+    const float contentW = hasText ? iconSize + 8.0f + ts.x : iconSize;
     ImVec2 size;
     if (width > 0.0f)
-        size = ImVec2(width, 0.0f);
+        size = ImVec2(std::max(width, contentW + 14.0f), 0.0f);
     else if (hasText)
         size = ImVec2(ts.x + iconSize + 22.0f, 0.0f);
     else
@@ -129,7 +135,6 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float cy = (min.y + max.y) * 0.5f;
     // Départ du contenu : centré si largeur fixe, sinon collé à gauche.
-    const float contentW = hasText ? iconSize + 8.0f + ts.x : iconSize;
     const float x0 = width > 0.0f
                          ? min.x + (max.x - min.x - contentW) * 0.5f
                          : (hasText ? min.x + 8.0f
