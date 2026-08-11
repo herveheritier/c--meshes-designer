@@ -10,6 +10,8 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 - **Une évolution = un item**, formulé de façon concise.
 - **À réaliser** : décrire le comportement attendu du point de vue de l'utilisateur
   (non technique), puis classer par ordre de priorité (les plus importantes en haut).
+  Dans cette liste, les évolutions **cochées** (`[x]`) sont celles à réaliser **de
+  suite** ; les évolutions non cochées (`[ ]`) restent en attente.
 - **Effectuées** : quand une évolution est livrée, la déplacer de « À réaliser » vers
   « Effectuées » en la préfixant de la **date** (format `AAAA-MM-JJ`) et de
   l'**identifiant court du commit** qui l'a livrée.
@@ -33,11 +35,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   « Fusionner » arme un mode où l'on glisse le point près d'un autre pour les fusionner ;
   le rayon de fusion se règle à la molette sur le bouton (8 à 64 px, défaut 20) et un
   2e clic verrouille le mode pour enchaîner les fusions (cadenas).
-- [ ] **Rotation de chaque plan autour du curseur** (8.3) : AltGr + molette fait pivoter
-  le plan actif de 5° par cran, avec le curseur comme pivot ; l'angle cumulé s'affiche au
-  HUD (`rot X°`) et Ctrl+0 le remet à zéro.
-- [ ] **Déplacement de tous les plans ensemble** (8.4) : AltGr + clic droit + glisser
-  déplace tous les plans d'un même décalage, sans bouger la vue.
 - [ ] **Molette sur le bouton de la forme active** (4.2) : régler aussi le nombre de côtés
   du cercle et de l'anneau à la molette sur le bouton (aujourd'hui réglable uniquement
   sur le canvas).
@@ -61,6 +58,9 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-11 · `e2976ce` — Rotation de tous les plans autour du curseur (AltGr + molette,
+  5° par cran, angle cumulé `rot X°` remis à zéro par Ctrl+0) et déplacement de tous les
+  plans d'un même décalage (AltGr + clic droit + glisser), sans bouger la vue.
 - 2026-08-11 · `6d3cd14` — Création de l'éditeur de maillages 2D : dessin de points et
   de triangles, formes prédéfinies, sélection et manipulation, peinture, multi-plans,
   annuler/rétablir, sauvegarde et import/export.
