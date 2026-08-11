@@ -592,8 +592,8 @@ void toolbar(App& app) {
             app.selectAll();
             ImGui::CloseCurrentPopup();
         }
-        if (toolBtnIcon("select-all", "Inverser la sélection (Ctrl+I)", false, kGreen,
-                        false, "Inverser la sélection", 190.0f)) {
+        if (toolBtnIcon("invert-selection", "Inverser la sélection (Ctrl+I)", false,
+                        kGreen, false, "Inverser la sélection", 190.0f)) {
             app.invertSelection();
             ImGui::CloseCurrentPopup();
         }
@@ -1970,7 +1970,7 @@ void quitDialog(App& app) {
             g_quit = true;
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Revenir à l'édition", false, kGreen, false,
+        if (toolBtnIcon("undo", "Revenir à l'édition", false, kGreen, false,
                         "Annuler", 150.0f)) {
             app.dlgQuitOpen = false;
             app.quitPending = false;
