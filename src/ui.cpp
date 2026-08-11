@@ -1959,19 +1959,28 @@ void quitDialog(App& app) {
         ImGui::TextUnformatted("La scène contient des modifications non enregistrées.");
         ImGui::TextUnformatted("Que voulez-vous faire ?");
         ImGui::Separator();
+        // Largeur commune des boutons : elle contient le libellé le plus long
+        // (« Quitter quand même ») quelle que soit la police, sinon le texte
+        // déborderait de la largeur fixe de 150 px.
+        const float iconSz = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
+        const float lblW =
+            std::max({ImGui::CalcTextSize("Enregistrer").x,
+                      ImGui::CalcTextSize("Quitter quand même").x,
+                      ImGui::CalcTextSize("Annuler").x});
+        const float btnW = lblW + iconSz + 22.0f;
         if (toolBtnIcon("export", "Enregistrer la scène puis quitter (Ctrl+S)", false,
-                        kGreen, false, "Enregistrer", 150.0f)) {
+                        kGreen, false, "Enregistrer", btnW)) {
             app.dlgQuitOpen = false;
             openSaveDialog(app);
         }
         ImGui::SameLine();
         if (toolBtnIcon("close", "Quitter sans enregistrer", false, kRed, false,
-                        "Quitter quand même", 150.0f)) {
+                        "Quitter quand même", btnW)) {
             g_quit = true;
         }
         ImGui::SameLine();
         if (toolBtnIcon("undo", "Revenir à l'édition", false, kGreen, false,
-                        "Annuler", 150.0f)) {
+                        "Annuler", btnW)) {
             app.dlgQuitOpen = false;
             app.quitPending = false;
         }
