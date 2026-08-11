@@ -21,6 +21,36 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ---
 
+## A réaliser
+
+- **Clic-droit boutons** les choix contextuels doivent apparaître sous la forme de boutons
+- **Choix des formes** le choix des formes doit s'activer en tant que menu contextuel plutot que sous-fenetre
+- **Etoile variable** pour la forme étoile choisir comme pour le cercle et l'anneau le nombre de cotés
+- **Importer un fichier OBJ** : charger les triangles d'un fichier `.obj` (l'export
+  existe déjà), via le même dialogue d'import que JSON/meshes (remplacer ou fusionner).
+- **Miroir de la sélection** : symétrie X ou Y de la sélection par rapport au premier
+  point sélectionné (comme Aligner/Répartir), avec un raccourci dédié.
+- **Mettre à l'échelle la sélection** : agrandir ou réduire la sélection par saisie
+  d'un facteur, dans un dialogue comme la rotation précise (Alt+R).
+- **Cadrer la sélection** : zoom automatique sur la sélection courante (complément de
+  « Tout afficher »), avec un raccourci dédié.
+- **Aimantation indépendante de la grille** : pouvoir aimanter sur la grille sans
+  l'afficher, ou afficher la grille sans aimanter.
+- **Exporter un plan en SVG** : générer un fichier SVG vectoriel du plan actif
+  (contours des triangles).
+- **Sauvegardes horodatées** : conserver un historique des versions successives de
+  l'autosave pour pouvoir revenir en arrière.
+- **Statistiques du plan dans le HUD** : afficher le nombre de sommets, de triangles
+  et l'aire totale du plan actif.
+- **Outil mesure** : mode dédié pour mesurer la distance entre deux points, résultat
+  affiché dans le HUD.
+- **Dupliquer le plan actif** : copie complète du plan courant avec ses couleurs,
+  insérée juste au-dessus.
+- **Champs dynamiques de la barre d'outils à largeur fixe** : donner aux champs
+  dynamiques (zoom, angle de rotation, nombre de côtés, compteurs…) une taille fixe
+  indépendante du contenu, pour éviter les à-coups de mise en page quand les valeurs
+  changent.
+
 ## Effectuées
 
 - 2026-08-11 · `57ec966` — Idées d'évolutions : tout afficher (Accueil : zoom
