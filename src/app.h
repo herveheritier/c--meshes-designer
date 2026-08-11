@@ -95,6 +95,22 @@ public:
     // --- Formes prédéfinies ---
     int circleSides = 16;               // côtés du cercle/anneau (molette, mémorisé)
 
+    // --- Fusion de points (5.5 / 5.6) ---
+    enum class MergeMode { Off, Armed, Locked };
+    MergeMode mergeMode = MergeMode::Off;
+    int mergeRadius = 20;               // rayon de fusion en pixels écran (8..64, 5.6)
+    void toggleMergeMode();             // Off → Armé → Verrouillé → Off (bouton Fusionner)
+    // 5.5 : regroupe tous les sommets sélectionnés à leur position moyenne.
+    void mergeSelectionToCentroid();
+    // 5.6 : fusionne le sommet v avec le plus proche situé à moins du rayon.
+    bool tryMergeByDrag(int v);
+    // Groupes de sommets superposés (mêmes coordonnées) du plan actif.
+    std::vector<std::vector<int>> overlapGroups() const;
+    // Groupe superposé le plus proche du curseur (pour le clic sur l'anneau).
+    int pickOverlapGroup(const Vec2& world, float tolPx) const;
+    // Sommet le plus proche de v à moins de `tolPx` pixels écran (cible de fusion).
+    int pickMergeTarget(int v, float tolPx) const;
+
     // --- Couleurs & pinceau ---
     std::vector<Color> palette;         // palette personnalisable (8 défauts)
     bool brushArmed = false;
@@ -281,6 +297,8 @@ private:
     void drawMeshGeometry();
     void drawDragPreview();
     void drawShapeOutline();
+    void drawMergeVisuals();
+    void drawCircleLines(const Vec2& c, float radPx, const Color& col, int segs);
     void drawPlane(const Mesh2D& p, bool isActive);
     void drawPreviewGeometry();
     void dashedPairs(const std::vector<Mesh2D::Edge>& edges, const Mesh2D& p,

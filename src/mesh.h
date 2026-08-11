@@ -59,6 +59,12 @@ public:
     bool removeVertex(int index);
     // Retire plusieurs sommets (les indices sont remappés automatiquement).
     void removeVertices(const std::vector<int>& indices);
+    // Fusionne plusieurs sommets en un seul (spec 5.5 / 5.6) : le sommet
+    // d'indice le plus petit est conservé (déplacé à `pos`), les autres sont
+    // remplacés par lui dans les faces puis retirés. Les faces devenues
+    // dégénérées (< 3 sommets ou boucle en double) sont supprimées.
+    // Retourne l'index du sommet conservé, ou -1 si l'entrée est invalide.
+    int mergeVertices(const std::vector<int>& indices, const Vec2& pos);
 
     // --- Faces ---
     // Crée un polygone à partir d'indices valides (>= 3 sommets, sans doublon).

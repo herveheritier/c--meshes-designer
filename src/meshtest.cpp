@@ -192,6 +192,45 @@ static void testMeshOps() {
 
     // pointSegmentDistance
     CHECK(pointSegmentDistance({0.5f, 0.5f}, {0, 0}, {1, 0}) == 0.5f);
+
+    // Fusion de points superposés (5.5 / 5.6)
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({1, 0});
+        const int c = m.addVertex({0, 1});
+        m.addFace({a, b, c});
+        const int c2 = m.addVertex({0, 1});  // doublon de c
+        // Le plus petit indice est conservé, déplacé à la position moyenne.
+        CHECK(m.mergeVertices({c2, c}, {0.0f, 1.0f}) == c);
+        CHECK((int)m.vertices.size() == 3);
+        CHECK((int)m.faces.size() == 1);
+        CHECK(m.vertices[c].x == 0.0f && m.vertices[c].y == 1.0f);
+        // La face référence toujours le sommet conservé.
+        for (int v : m.faces[0].verts) CHECK(v != c2 && v >= 0 && v < 3);
+    }
+    // Fusion qui dégénère une face (boucle en double) → face supprimée
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({1, 0});
+        const int c = m.addVertex({1, 1});
+        const int a2 = m.addVertex({0, 0});  // superposé à a, dans la boucle
+        CHECK(m.addFace({a, b, c, a2}) == 0);
+        CHECK(m.mergeVertices({a2, a}, {0.0f, 0.0f}) == a);
+        CHECK((int)m.faces.size() == 0);
+        CHECK((int)m.vertices.size() == 3);  // a, b, c
+        CHECK(m.vertices[a].x == 0.0f && m.vertices[a].y == 0.0f);
+    }
+    // Entrées invalides ou triviales
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        CHECK(m.mergeVertices({}, {0, 0}) == -1);
+        CHECK(m.mergeVertices({0, 5}, {0, 0}) == -1);  // indice hors limites
+        CHECK(m.mergeVertices({a}, {1, 1}) == a);       // un seul : rien à faire
+        CHECK((int)m.vertices.size() == 1);
+    }
 }
 
 static void testSpecFormats() {

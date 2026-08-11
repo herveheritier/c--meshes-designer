@@ -34,6 +34,10 @@ const Color kVertDim{0.50f, 0.56f, 0.66f, 0.55f};   // points atténués des pla
 const Color kVertHover{1.0f, 1.0f, 1.0f, 1.0f};
 const Color kVertSel{1.00f, 0.80f, 0.20f, 1.0f};
 const Color kPreview{0.40f, 0.95f, 1.00f, 0.95f};
+const Color kMergeRing{1.00f, 0.55f, 0.15f, 0.95f};       // anneau orange des points superposés (5.5)
+const Color kMergeRadius{0.45f, 0.92f, 0.50f, 0.55f};     // rayon de fusion par déplacement (5.6)
+const Color kMergeRadiusFill{0.45f, 0.92f, 0.50f, 0.09f};
+const Color kMergeTarget{0.45f, 0.95f, 0.55f, 1.0f};      // cible située dans le rayon de fusion
 
 const char* toolName(Tool t) {
     switch (t) {
@@ -495,6 +499,7 @@ void App::drawScene() {
         return;
     }
     drawMeshGeometry();
+    drawMergeVisuals();
     drawDragPreview();
 }
 
@@ -643,6 +648,18 @@ void App::toVertexSelection() {
 void App::handleSelectClick(const Vec2& world, const Vec2& screen) {
     ImGuiIO& io = ImGui::GetIO();
     if (selMode == SelMode::Vertex) {
+        // 5.5 : un clic sur l'anneau orange sélectionne TOUS les points
+        // superposés (le bouton Fusionner pourra ensuite les regrouper).
+        const int g = pickOverlapGroup(world, 12.0f);
+        if (g >= 0) {
+            const auto groups = overlapGroups();
+            if (!io.KeyShift) clearSelection();
+            for (int v : groups[g]) selVerts.push_back(v);
+            setStatus("N points superposés sélectionnés — " +
+                      std::to_string(groups[g].size()) +
+                      " · « Fusionner » les regroupe en un seul point");
+            return;
+        }
         const int v = pickVertex(world, 8.0f);
         if (v >= 0) {
             if (io.KeyShift) {
@@ -773,9 +790,15 @@ void App::endMoveDrag(const Vec2& world) {
         // désélectionne le reste (ou efface si zone vide).
         undoStack.pop_back();
         pickNearestOnly(world);
-    } else {
-        setStatus(std::to_string(drag_.movingVerts.size()) + " sommet(s) déplacé(s)");
+        return;
     }
+
+    // 5.6 : en mode fusion par déplacement (armé ou verrouillé), relâcher le
+    // point unique sélectionné près d'un autre point les fusionne en un seul.
+    if (mergeMode != MergeMode::Off && drag_.movingVerts.size() == 1) {
+        if (tryMergeByDrag(drag_.movingVerts[0])) return;
+    }
+    setStatus(std::to_string(drag_.movingVerts.size()) + " sommet(s) déplacé(s)");
 }
 
 void App::applyMove(const Vec2& world) {
@@ -787,6 +810,137 @@ void App::applyMove(const Vec2& world) {
         if (v < 0 || (size_t)v >= n) continue;  // le maillage a pu changer pendant le drag
         scene.activePlane().vertices[v] = drag_.startPositions[i] + delta;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Fusion de points (5.5 / 5.6)
+// ---------------------------------------------------------------------------
+// Groupes de sommets du plan actif occupant la même position (mêmes
+// coordonnées, tolérance 1e-4 pour les flottants). Chaque groupe contient les
+// indices de tous les sommets superposés (≥ 2 membres).
+std::vector<std::vector<int>> App::overlapGroups() const {
+    const Mesh2D& m = scene.activePlane();
+    const int n = (int)m.vertices.size();
+    std::vector<bool> used((size_t)n, false);
+    std::vector<std::vector<int>> out;
+    constexpr float kEps = 1e-4f;
+    for (int i = 0; i < n; ++i) {
+        if (used[i]) continue;
+        std::vector<int> g = {i};
+        used[i] = true;
+        for (int j = i + 1; j < n; ++j) {
+            if (used[j]) continue;
+            if (std::fabs(m.vertices[j].x - m.vertices[i].x) < kEps &&
+                std::fabs(m.vertices[j].y - m.vertices[i].y) < kEps) {
+                g.push_back(j);
+                used[j] = true;
+            }
+        }
+        if (g.size() >= 2) out.push_back(std::move(g));
+    }
+    return out;
+}
+
+int App::pickOverlapGroup(const Vec2& world, float tolPx) const {
+    const auto groups = overlapGroups();
+    const float tol = tolPx / camera.zoom;
+    int best = -1;
+    float bestD = tol;
+    for (size_t gi = 0; gi < groups.size(); ++gi) {
+        const Vec2 p = scene.activePlane().vertices[groups[gi][0]];
+        const float d = distance(world, p);
+        if (d <= bestD) {
+            bestD = d;
+            best = (int)gi;
+        }
+    }
+    return best;
+}
+
+// Sommet le plus proche de `v` à moins de `tolPx` pixels écran (indépendant du
+// zoom). Utilisé par la fusion par déplacement (cible de fusion) et par le
+// rendu (surbrillance de la cible dans le rayon).
+int App::pickMergeTarget(int v, float tolPx) const {
+    const Mesh2D& m = scene.activePlane();
+    if (v < 0 || (size_t)v >= m.vertices.size()) return -1;
+    const Vec2 p = m.vertices[v];
+    const float tol = tolPx / camera.zoom;
+    int best = -1;
+    float bestD = tol;
+    for (int i = 0; i < (int)m.vertices.size(); ++i) {
+        if (i == v) continue;
+        const float d = distance(p, m.vertices[i]);
+        if (d <= bestD) {
+            bestD = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+void App::toggleMergeMode() {
+    if (mergeMode == MergeMode::Locked) {
+        mergeMode = MergeMode::Off;
+        setStatus("Fusion par déplacement désarmée");
+        return;
+    }
+    if (mergeMode == MergeMode::Armed) {
+        mergeMode = MergeMode::Locked;
+        setStatus("Fusion par déplacement verrouillée (cadenas) — "
+                  "les fusions s'enchaînent jusqu'à désarmement");
+        return;
+    }
+    if (selMode == SelMode::Vertex && selVerts.size() == 1) {
+        mergeMode = MergeMode::Armed;
+        setStatus("Fusion par déplacement armée — glissez le point sélectionné "
+                  "près d'un autre (rayon " + std::to_string(mergeRadius) + " px)");
+    } else if (selMode == SelMode::Vertex && selVerts.size() >= 2) {
+        mergeSelectionToCentroid();  // 5.5 : regrouper la sélection courante
+    }
+}
+
+void App::mergeSelectionToCentroid() {
+    if (selMode != SelMode::Vertex || selVerts.size() < 2) return;
+    const std::vector<int> verts = selVerts;
+    const Mesh2D& m = scene.activePlane();
+    Vec2 c;
+    for (int v : verts) c = c + m.vertices[v];
+    c = c / (float)verts.size();
+    pushUndo();
+    const int keep = scene.activePlane().mergeVertices(verts, c);
+    if (keep < 0) {
+        undoStack.pop_back();
+        return;
+    }
+    clearSelection();
+    selVerts.push_back(keep);
+    dirty = true;
+    setStatus(std::to_string(verts.size()) + " points superposés fusionnés "
+              "en un seul (position moyenne)");
+    logMsg("Fusion de " + std::to_string(verts.size()) + " points superposés");
+}
+
+bool App::tryMergeByDrag(int v) {
+    const int target = pickMergeTarget(v, (float)mergeRadius);
+    if (target < 0) return false;
+    const Mesh2D& m = scene.activePlane();
+    const Vec2 pos = (m.vertices[v] + m.vertices[target]) * 0.5f;
+    const int keep = scene.activePlane().mergeVertices({v, target}, pos);
+    if (keep < 0) return false;
+    clearSelection();
+    selVerts.push_back(keep);  // point fusionné sélectionné (enchaînement 5.6)
+    if (mergeMode == MergeMode::Armed) {
+        // Mode simple : une fusion réussie désarme (il faut ré-armer).
+        mergeMode = MergeMode::Off;
+    }
+    dirty = true;
+    setStatus(std::string("Points fusionnés par déplacement") +
+              (mergeMode == MergeMode::Locked
+                   ? " — mode verrouillé, glissez à nouveau pour continuer"
+                   : ""));
+    logMsg("Fusion par déplacement : " + std::to_string(v) + " et " +
+           std::to_string(target));
+    return true;
 }
 
 void App::handleSelectRelease(const Vec2& screen) {
@@ -1526,6 +1680,11 @@ void App::onEscape() {
         setStatus("Pinceau désarmé");
         return;
     }
+    if (mergeMode != MergeMode::Off) {
+        mergeMode = MergeMode::Off;
+        setStatus("Fusion par déplacement désarmée");
+        return;
+    }
     if (preview != PreviewMode::Off) exitPreview();
 }
 
@@ -2017,6 +2176,60 @@ void App::dashedPairs(const std::vector<Mesh2D::Edge>& edges, const Mesh2D& p,
             t = t2 + gap;
         }
     }
+}
+
+// Rendu des aides à la fusion : anneau orange autour des points superposés
+// (5.5) et, quand la fusion par déplacement est armée/verrouillée, le rayon de
+// fusion autour du point unique sélectionné avec la cible surlignée (5.6).
+void App::drawMergeVisuals() {
+    if (kiosk) return;  // le voile plein écran recouvre le canvas
+    if (tool != Tool::Select || selMode != SelMode::Vertex) return;
+    const Mesh2D& m = scene.activePlane();
+
+    // 5.5 : anneau orange à chaque position où plusieurs points coïncident.
+    const auto groups = overlapGroups();
+    for (const auto& g : groups) {
+        const Vec2 p = m.vertices[g[0]];
+        drawCircleLines(p, 9.0f, kMergeRing, 24);
+    }
+
+    // 5.6 : rayon de fusion autour du point unique sélectionné.
+    if (mergeMode == MergeMode::Off || selVerts.size() != 1) return;
+    const int v = selVerts[0];
+    if (v < 0 || (size_t)v >= m.vertices.size()) return;
+    const Vec2 c = m.vertices[v];
+    const float r = mergeRadius / camera.zoom;
+    {
+        // Disque translucide : la « zone d'atterrissage » du point à relâcher.
+        constexpr int kSegs = 32;
+        std::vector<Vec2> fan;
+        fan.reserve((size_t)kSegs * 3);
+        for (int i = 0; i < kSegs; ++i) {
+            const float a0 = (float)i * 2.0f * kPi / (float)kSegs;
+            const float a1 = (float)(i + 1) * 2.0f * kPi / (float)kSegs;
+            fan.push_back(c);
+            fan.push_back({c.x + std::cos(a0) * r, c.y + std::sin(a0) * r});
+            fan.push_back({c.x + std::cos(a1) * r, c.y + std::sin(a1) * r});
+        }
+        renderer.drawTriangles(fan, kMergeRadiusFill);
+        drawCircleLines(c, (float)mergeRadius, kMergeRadius, kSegs);
+    }
+    // Cible dans le rayon : surlignée pour annoncer la fusion au relâchement.
+    const int target = pickMergeTarget(v, (float)mergeRadius);
+    if (target >= 0) renderer.drawPoints({m.vertices[target]}, 9.0f, kMergeTarget);
+}
+
+void App::drawCircleLines(const Vec2& c, float radPx, const Color& col, int segs) {
+    const float r = radPx / camera.zoom;
+    std::vector<Vec2> pairs;
+    pairs.reserve((size_t)segs * 2);
+    for (int i = 0; i < segs; ++i) {
+        const float a0 = (float)i * 2.0f * kPi / (float)segs;
+        const float a1 = (float)(i + 1) * 2.0f * kPi / (float)segs;
+        pairs.push_back({c.x + std::cos(a0) * r, c.y + std::sin(a0) * r});
+        pairs.push_back({c.x + std::cos(a1) * r, c.y + std::sin(a1) * r});
+    }
+    renderer.drawLines(pairs, col);
 }
 
 void App::drawDragPreview() {

@@ -57,6 +57,48 @@ void Mesh2D::removeVertices(const std::vector<int>& indices) {
     for (int i : sorted) removeVertex(i);
 }
 
+int Mesh2D::mergeVertices(const std::vector<int>& indices, const Vec2& pos) {
+    // Valide les entrées et dédoublonne.
+    std::vector<int> uniq;
+    for (int i : indices) {
+        if (i < 0 || i >= (int)vertices.size()) return -1;
+        if (std::find(uniq.begin(), uniq.end(), i) == uniq.end()) uniq.push_back(i);
+    }
+    if (uniq.empty()) return -1;
+    if (uniq.size() < 2) return uniq[0];  // rien à fusionner
+
+    // Le sommet conservé est le plus petit indice, déplacé à `pos`.
+    const int keep = *std::min_element(uniq.begin(), uniq.end());
+    vertices[keep] = pos;
+
+    // Les autres sommets fusionnés sont remplacés par `keep` dans les faces.
+    std::vector<int> removed;
+    for (int i : uniq)
+        if (i != keep) removed.push_back(i);
+    std::sort(removed.begin(), removed.end(), std::greater<int>());  // pour la suppression finale
+
+    for (Face& f : faces) {
+        for (int& v : f.verts) {
+            if (std::find(uniq.begin(), uniq.end(), v) != uniq.end()) v = keep;
+        }
+    }
+
+    // Supprime les faces devenues dégénérées (< 3 sommets ou boucle en double).
+    faces.erase(std::remove_if(faces.begin(), faces.end(),
+                               [](const Face& f) {
+                                   if ((int)f.verts.size() < 3) return true;
+                                   std::vector<int> u = f.verts;
+                                   std::sort(u.begin(), u.end());
+                                   return std::adjacent_find(u.begin(), u.end()) != u.end();
+                               }),
+                faces.end());
+
+    // Retire les sommets fusionnés (ordre décroissant : réindexation sûre,
+    // `keep` étant le plus petit indice n'est jamais remappé).
+    for (int i : removed) removeVertex(i);
+    return keep;
+}
+
 // ---------------------------------------------------------------------------
 // Faces
 // ---------------------------------------------------------------------------

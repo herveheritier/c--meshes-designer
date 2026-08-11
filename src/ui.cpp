@@ -376,6 +376,44 @@ void toolbar(App& app) {
     if (app.selectionCount() > 0)
         pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen);
 
+    // --- Fusion des points (5.5 / 5.6) ---
+    const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
+    const bool mergeCanArm = app.selMode == SelMode::Vertex && app.selVerts.size() == 1;
+    const bool mergeCanGroup = app.selMode == SelMode::Vertex && app.selVerts.size() >= 2;
+    if (toolBtnIcon(
+            "merge-points",
+            mergeArmed
+                ? "Fusion par déplacement armée — glissez le point sélectionné près "
+                  "d'un autre point pour les fusionner · molette : rayon (8-64 px) · "
+                  "re-clic : verrouiller puis désarmer"
+                : "Fusionner les points superposés (5.5, anneau orange) · avec 1 point "
+                  "sélectionné : armer la fusion par déplacement (5.6)",
+            mergeArmed, kGreen, !(mergeArmed || mergeCanArm || mergeCanGroup)))
+        app.toggleMergeMode();
+    // Cadenas sur le coin du bouton quand le mode est verrouillé (5.6).
+    if (app.mergeMode == App::MergeMode::Locked) {
+        const ImVec2 bmin = ImGui::GetItemRectMin();
+        const ImVec2 bmax = ImGui::GetItemRectMax();
+        drawSvgIconNamed(ImGui::GetWindowDrawList(), "merge-lock",
+                         ImVec2(bmax.x - 13.0f, bmin.y + 1.0f), 11.0f,
+                         IM_COL32(255, 255, 255, 235));
+    }
+    // Molette sur le bouton : rayon de fusion (8 à 64 px écran, indépendant du zoom).
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+        // lround : un cran de molette vaut ±1 (les roues à défilement lisse
+        // envoient des fractions ; l'arrondi évite un réglage muet).
+        app.mergeRadius =
+            std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
+        app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
+    }
+    // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6).
+    if (mergeArmed) {
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+                             (btnFrameHeight() - ImGui::GetFrameHeight()) * 0.5f);
+        ImGui::TextDisabled("%d", app.mergeRadius);
+    }
+
     // --- Groupe 2 : annuler / rétablir (avec compteur) ---
     groupSep();
     if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
@@ -901,7 +939,9 @@ void helpWindow(App& app) {
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
-        ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés)");
+        ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, rayon de fusion)");
+        ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
+        ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
         ImGui::BulletText("Engrenage (barre d'outils) : distance de détection des segments (illumination au survol)");
     }
     ImGui::End();
