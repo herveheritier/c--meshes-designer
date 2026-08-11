@@ -52,7 +52,10 @@ Chaque plan possède :
 
 - une liste de **points** (sommets) ;
 - une liste de **triangles** reliant ces points ;
-- éventuellement un **nom** (défaut : « Plan n », n étant son numéro d'ordre).
+- éventuellement un **nom** (défaut : « Plan n », n étant son numéro d'ordre) ;
+  il se modifie à tout moment (bouton **Renommer** de la barre d'outils,
+  champ vidé = retour au nom par défaut) et reste attaché au plan (conservé
+  dans le fichier JSON, affiché au kiosque, au HUD et dans les dialogues).
 
 **Un seul plan est actif à la fois** : les opérations d'édition (création, sélection,
 déplacement, suppression, peinture) ne s'appliquent qu'au plan actif. Les autres
@@ -113,9 +116,10 @@ Groupes, de gauche à droite :
 
 1. **Canevas / édition** : grille, réticule, prévisualiser, mode « toutes couleurs », compteur d'images par seconde (toujours visible), cible de sélection (sommet / segment / triangle), presse-papiers (copier / couper / coller), peinture (palette), aligner / répartir, formes prédéfinies, réinitialiser la scène, tout sélectionner, fusionner les points.
 2. **Annuler / Rétablir** : deux boutons avec compteur.
-3. **Sauvegarde** : bouton vert SAVE.
+3. **Sauvegarde** : bouton vert SAVE, export du plan actif en SVG, export de la
+   vue actuelle en image PNG, historique des versions de l'autosave.
 4. **Entrées** : boutons bleus « Charger meshes » et « Charger JSON ».
-5. **Navigation entre plans** : plan précédent / suivant, compteur « i/N », monter / descendre, ajouter un plan vide, supprimer le plan actif.
+5. **Navigation entre plans** : plan précédent / suivant, compteur « i/N », renommer le plan actif, monter / descendre, ajouter un plan vide, supprimer le plan actif.
 6. **Console** : afficher / masquer la console de messages.
 7. **Aide** : fenêtre des raccourcis.
 
@@ -369,7 +373,11 @@ Le mode **kiosque** (bouton dédié ou Alt+K, disponible dès qu'il y a au moins
 2 plans) présente chaque plan comme une **carte inclinée** autour d'un axe
 vertical virtuel (effet « kiosque » / cover-flow) :
 
-- chaque carte porte l'étiquette « Plan n » ; le **déplacement horizontal de la souris** fait varier l'inclinaison des cartes et met **un plan en avant** (pleine opacité, un guide pointillé vert marque l'axe du pointeur) ; les autres cartes sont atténuées ;
+- chaque carte porte l'étiquette du plan (« Plan n » ou son nom personnalisé) ;
+  le **déplacement horizontal de la souris** — ou les **flèches gauche / droite**
+  du clavier — fait varier l'inclinaison des cartes et met **un plan en avant**
+  (pleine opacité, un guide pointillé vert marque l'axe du pointeur) ; les
+  autres cartes sont atténuées ;
 - un **clic gauche** sélectionne le plan mis en avant et **quitte immédiatement** le mode ;
 - **Échap** ou **clic droit** sortent du mode sans changer de plan ;
 - aucune édition n'est possible dans ce mode ; la barre d'outils est masquée (sauf le bouton du mode).
@@ -579,6 +587,7 @@ dans une fenêtre flottante :
 | `Alt+S` | Mise à l'échelle précise : saisir un facteur (pivot = centre de la sélection) |
 | `Ctrl+M` | Outil mesure : distance entre deux points (affichée au HUD) |
 | `Alt+D` | Dupliquer le plan actif (copie complète insérée juste au-dessus) |
+| `←` / `→` / `↑` / `↓` | Déplacer la sélection d'un pas de grille (`Maj` : ×5, une salve = une étape annulable) |
 | `Maj+G` | Aimanter sur la grille sans son affichage (ou l'inverse) |
 | `C` / `R` / `T` | Formes : cercle / rectangle / triangle |
 | `Q` / `N` / `H` | Formes : carré / pentagone / hexagone |
@@ -647,4 +656,6 @@ Ces valeurs chiffrées font partie du contrat de l'application :
   construction, et chaque action rappelle la suivante.
 - **Le dessin ne se perd jamais** : persistance automatique de la scène et des
   préférences entre les sessions ; enregistrement explicite pour produire un
-  fichier exportable.
+  fichier exportable ; à la **fermeture de la fenêtre**, des modifications non
+  enregistrées déclenchent une confirmation (« Quitter sans enregistrer ? » :
+  Enregistrer puis quitter / Quitter quand même / Annuler).

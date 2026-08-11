@@ -27,6 +27,11 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `e8e0e03` — Correctifs : en prévisualisation, plus aucun
+  raccourci ne modifie la géométrie (seuls zoom, cadrage et sortie restent
+  actifs, spec 9.3) ; la duplication d'un plan reprend le nom par défaut ;
+  icône dédiée (image) pour l'export PNG, distincte de la sauvegarde ; le
+  pré-remplissage du dialogue d'enregistrement est factorisé.
 - 2026-08-11 · `99558d9` — Interface : bouton d'export d'image PNG dans la
   barre d'outils (groupe Sauvegarde) — la vue actuelle s'exporte en image
   depuis l'édition comme depuis la prévisualisation (sans l'interface).

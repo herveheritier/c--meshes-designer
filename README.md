@@ -22,10 +22,10 @@ dans **`EVOLUTIONS.md`**.
 | **Presse-papiers** | Copier / couper / coller interne (Ctrl+C/X/V) : points + triangles entièrement contenus ; chaque collage décale d'un demi-pas de grille. |
 | **Peinture** | Palette personnalisable (8 défauts, ajout / suppression / modification / « Défauts »), pinceau, opacité (défaut 45 %). La couleur survit aux suppressions et aux annulations. |
 | **Grille & réticule** | Grille affichable (G), pas ajustable à la molette (clic milieu : défaut). Réticule 3 états (R). Zoom ×1,1 par cran, borné [0,1× ; 10×], Ctrl+0 recentre. |
-| **Plans (multi-plans)** | Scène composée de **plans empilés** (navigation ◀▶, compteur i/N, monter/descendre Alt+↑/↓, ajout « + » avant/après, suppression « × » avec confirmation — tout annulable). Plans inactifs estompés en pointillés. Mode « toutes couleurs » (AC), mode **kiosque** (Alt+K) de sélection en couverture. |
+| **Plans (multi-plans)** | Scène composée de **plans empilés** (navigation ◀▶, compteur i/N, **renommage** d'un plan, monter/descendre Alt+↑/↓, ajout « + » avant/après, suppression « × » avec confirmation — tout annulable). Plans inactifs estompés en pointillés. Mode « toutes couleurs » (AC), mode **kiosque** (Alt+K) de sélection en couverture (flèches ←/→ au clavier). |
 | **Prévisualisation** | Mode œil (P) : aperçu simple → tous les plans → édition ; sortie par Échap, clic gauche ou Ctrl+S. |
 | **Annuler / Rétablir** | Historique de **50 entrées** (Ctrl+Z, Ctrl+Maj+Z / Ctrl+Y), compteurs, conservé entre deux sessions. |
-| **Sauvegarde** | Fenêtre d'enregistrement (Ctrl+S) avec liste des emplacements (20 max), renommage, fichier `<nom>.json`. Persistance automatique de la scène, de la vue et des préférences. |
+| **Sauvegarde** | Fenêtre d'enregistrement (Ctrl+S) avec liste des emplacements (20 max), renommage, fichier `<nom>.json`. Exports SVG (plan actif) et PNG (vue actuelle) depuis la barre d'outils. Persistance automatique de la scène, de la vue et des préférences ; confirmation à la fermeture si la scène est modifiée. |
 | **Import / Export** | « meshes » (texte : **une ligne = un plan**, triplets de sommets, coordonnées dédupliquées) et JSON complet multi-plans (aller-retour exact) ; modes Remplacer / Fusionner mémorisés ; glisser-déposer d'un fichier JSON. |
 | **Interface** | Barre d'outils flottante groupée avec pilules vertes (fps, plan i/N, historique, sélection), HUD bas-gauche (zoom, position, angle de rotation cumulé `rot X°`, redessins, état de la scène — en kiosque : redessins + angle), messages contextuels (toast), console d'événements horodatée, fenêtre d'aide (`?`). |
 
@@ -71,7 +71,8 @@ cmake --build build --target meshtest
 | `C` | Mode cercle |
 | `Alt+←` / `Alt+→` | Aligner X / Y · `Alt+Maj+←/→` : répartir X / Y |
 | `Alt+↑` / `Alt+↓` | Monter / descendre le plan actif dans l'empilement |
-| `Alt+K` | Kiosque : choisir le plan en couverture (≥ 2 plans) |
+| `Alt+K` | Kiosque : choisir le plan en couverture (≥ 2 plans, flèches ←/→ au clavier) |
+| `←` / `→` / `↑` / `↓` | Déplacer la sélection d'un pas de grille (Maj : ×5) |
 | `Échap` | Quitter le mode en cours (construction, kiosque, panneau) ou fermer une fenêtre |
 | `?` | Aide et raccourcis |
 
