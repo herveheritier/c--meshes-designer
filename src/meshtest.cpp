@@ -2,13 +2,16 @@
 // Compilation : cible `meshtest` du CMakeLists.
 #include "io.h"
 #include "mesh.h"
+#include "pngexport.h"
 #include "svgparse.h"
 #include "triangulate.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 using namespace mesh;
@@ -449,7 +452,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 47);  // toutes les icônes du dossier assets/
+    CHECK(n == 51);  // toutes les icônes du dossier assets/
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -533,12 +536,46 @@ static void testRoundTrip() {
     CHECK(!bad.ok);
 }
 
+static void testPngExport() {
+    std::printf("[png export]\n");
+    const std::string path = "/tmp/meshtest.png";
+    std::remove(path.c_str());
+    // Image 3×2 : bas = rouge/vert/bleu, haut = noir/blanc/gris.
+    unsigned char px[3 * 2 * 4] = {
+        255, 0,   0,   255, 0, 255, 0, 255, 0, 0, 255, 255,   // ligne 0 (bas)
+        0,   0,   0,   255, 255, 255, 255, 255, 128, 128, 128, 255,  // ligne 1 (haut)
+    };
+    CHECK(writePng(path, 3, 2, px));
+    CHECK(writePng("/tmp/meshtest-invalide.png", 0, 2, px) == false);
+    CHECK(writePng("/tmp/meshtest-invalide2.png", 3, 2, nullptr) == false);
+    CHECK(writePng("", 3, 2, px) == false);
+
+    std::ifstream f(path, std::ios::binary);
+    CHECK(f.good());
+    std::vector<unsigned char> data((std::istreambuf_iterator<char>(f)),
+                                    std::istreambuf_iterator<char>());
+    CHECK(data.size() > 40);
+    // Signature PNG.
+    const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    CHECK(data.size() >= 8 && std::equal(sig, sig + 8, data.begin()));
+    // En-tête IHDR : dimensions 3×2 aux octets 16..23.
+    CHECK(data[16] == 0 && data[17] == 0 && data[18] == 0 && data[19] == 3);
+    CHECK(data[20] == 0 && data[21] == 0 && data[22] == 0 && data[23] == 2);
+    CHECK(data[24] == 8 && data[25] == 2);  // 8 bits, RGB
+    // Fin de fichier : le type « IEND » occupe les octets -8..-5 (le bloc est
+    // longueur(4) + type(4) + CRC(4)).
+    CHECK(data.size() >= 12 &&
+          data[data.size() - 8] == 'I' && data[data.size() - 7] == 'E' &&
+          data[data.size() - 6] == 'N' && data[data.size() - 5] == 'D');
+}
+
 int main() {
     testTriangulation();
     testMeshOps();
     testRoundTrip();
     testSpecFormats();
     testSVGIcons();
+    testPngExport();
 
     std::printf("\nRésultat : %d/%d vérifications OK\n", g_checks - g_failures, g_checks);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

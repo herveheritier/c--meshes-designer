@@ -118,6 +118,9 @@ public:
     float brushOpacity = 0.45f;         // opacité appliquée à chaque peinture
 
     // --- Presse-papiers interne (5.8) ---
+    // Duplique la sélection (Ctrl+D) : copie légèrement décalée, prête à
+    // déplacer — les nouveaux éléments deviennent la sélection.
+    void duplicateSelection();
     struct ClipData {
         std::vector<Vec2> verts;
         std::vector<Face> faces;
@@ -170,6 +173,14 @@ public:
     bool dlgImportReplace = true;       // dernier mode choisi mémorisé
     bool dlgResetOpen = false;
     bool dlgHelpOpen = false;
+    bool dlgRotateOpen = false;           // rotation précise (saisie d'angle)
+    float rotateDeg = 90.0f;              // angle par défaut du dialogue
+    bool dlgPngOpen = false;              // export d'image (PNG)
+    char dlgPngPath[1024] = {0};
+
+    // --- Export d'image (PNG depuis la prévisualisation) ---
+    bool exportPngRequested = false;
+    std::string exportPngPath;
 
     // --- Viewport ---
     ImVec2 viewportPos{0, 0};
@@ -186,6 +197,8 @@ public:
     // --- Frame ---
     void update(float dt);
     void drawScene();
+    // Capture le viewport et écrit le PNG demandé (exportPngRequested).
+    void exportPngIfRequested();
 
     // --- Commandes (undoables) ---
     void pushUndo();
@@ -196,6 +209,9 @@ public:
     void insertVertexAt(const Mesh2D::Edge& e, const Vec2& world);
     void resetScene();
     void selectAll();
+    // Inverse la sélection du plan actif (Ctrl+I) : les éléments non
+    // sélectionnés deviennent sélectionnés et réciproquement.
+    void invertSelection();
     void cycleTarget();
     void cycleReticle();
     void cyclePreview();
@@ -220,6 +236,8 @@ public:
     void distributeX();
     void distributeY();
     void rotateSelectionAround(const Vec2& pivot, float deg);
+    // Rotation précise (saisie d'un angle) : pivot = centre de la sélection.
+    void rotateSelectionExact(float deg);
     // Rotation de TOUS les plans autour du pivot (8.3, AltGr + molette).
     void rotateAllPlanesAround(const Vec2& pivot, float deg);
 

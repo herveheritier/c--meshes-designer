@@ -420,7 +420,7 @@ zoomer et se déplacer sans rien modifier.
 
 ### 9.2 Réticule
 
-Le bouton **Réticule** (ou touche `R`) fait défiler **trois états** :
+Le bouton **Réticule** (ou touche `Y`) fait défiler **trois états** :
 désactivé → simple (croix de visée) → symétrique (croix pleine grandeur).
 
 ### 9.3 Prévisualisation (mode œil)
@@ -562,11 +562,17 @@ dans une fenêtre flottante :
 | `Ctrl+S` | Enregistrer (fenêtre d'emplacement) |
 | `Ctrl+0` | Réinitialiser le zoom (100 %, recentré) |
 | `G` | Afficher / masquer la grille |
-| `R` | Réticule : 3 états (off / simple / symétrique) |
+| `Y` | Réticule : 3 états (off / simple / symétrique) |
 | `F` | Afficher / masquer le compteur de redessins (HUD) |
 | `P` | Prévisualiser : cycle aperçu simple → plans → édition |
+| `Accueil` | Tout afficher : zoom automatique sur la scène entière |
+| `Ctrl+D` | Dupliquer la sélection (copie décalée, prête à déplacer) |
+| `Ctrl+A` / `Ctrl+I` | Tout sélectionner / inverser la sélection |
 | `Alt+K` | Kiosque de sélection des plans |
-| `C` | Activer / désactiver le mode cercle |
+| `Alt+R` | Rotation précise : saisir un angle exact (pivot = centre de la sélection) |
+| `C` / `R` / `T` | Formes : cercle / rectangle / triangle |
+| `Q` / `N` / `H` | Formes : carré / pentagone / hexagone |
+| `É` (`E`) / `A` | Formes : étoile / anneau |
 | `Alt+↑` / `Alt+↓` | Monter / descendre le plan actif dans l'ordre |
 | `Alt+←` / `Alt+→` | Aligner X / Y sur le premier point sélectionné |
 | `Alt+Maj+←` / `Alt+Maj+→` | Répartir X / Y entre les extrêmes |

@@ -27,6 +27,14 @@ public:
     void drawTriangles(const std::vector<Vec2>& pts, const Color& c);
     void drawPoints(const std::vector<Vec2>& pts, float sizePx, const Color& c);
 
+    // Rectangle du viewport en pixels framebuffer (export d'image).
+    int viewportX() const { return vx_; }
+    int viewportY() const { return vy_; }
+    int viewportW() const { return vw_; }
+    int viewportH() const { return vh_; }
+    // Pixels RGBA du viewport (bas en haut) — pour l'export PNG.
+    std::vector<unsigned char> readPixelsRGBA() const;
+
 private:
     bool compileProgram();
     void setupState();

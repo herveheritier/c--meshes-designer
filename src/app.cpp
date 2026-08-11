@@ -1,4 +1,5 @@
 #include "app.h"
+#include "pngexport.h"
 #include "triangulate.h"
 
 #include <SDL.h>
@@ -500,11 +501,42 @@ void App::drawScene() {
 
     if (preview == PreviewMode::Planes || preview == PreviewMode::Simple) {
         drawPreviewGeometry();
+    } else {
+        drawMeshGeometry();
+        drawMergeVisuals();
+        drawDragPreview();
+    }
+    // Export d'image : la demande (posée par l'interface) est honorée dès que
+    // la scène est dessinée — avant que l'interface ne soit rendue par-dessus.
+    exportPngIfRequested();
+}
+
+void App::exportPngIfRequested() {
+    if (!exportPngRequested) return;
+    exportPngRequested = false;
+    if (exportPngPath.empty()) {
+        setStatus("Export PNG : nom de fichier vide");
         return;
     }
-    drawMeshGeometry();
-    drawMergeVisuals();
-    drawDragPreview();
+    const int w = renderer.viewportW();
+    const int h = renderer.viewportH();
+    if (w <= 0 || h <= 0) {
+        setStatus("Export PNG : viewport vide");
+        return;
+    }
+    const std::vector<unsigned char> px = renderer.readPixelsRGBA();
+    if (px.empty()) {
+        setStatus("Export PNG : lecture des pixels impossible");
+        return;
+    }
+    if (writePng(exportPngPath, w, h, px.data())) {
+        setStatus("Image PNG exportée : " + exportPngPath);
+        logMsg("Image PNG exportée : " + exportPngPath + " (" +
+               std::to_string(w) + "×" + std::to_string(h) + ")");
+    } else {
+        setStatus("Échec de l'export PNG : " + exportPngPath);
+        logMsg("Échec de l'export PNG : " + exportPngPath);
+    }
 }
 
 // Géométrie seule (prévisualisation) : pas de points de contrôle ni de sélection.
@@ -1299,6 +1331,25 @@ void App::rotateSelectionAround(const Vec2& pivot, float deg) {
     setStatus("Rotation de " + std::to_string((int)deg) + "° autour du curseur");
 }
 
+void App::rotateSelectionExact(float deg) {
+    const std::vector<int> verts = selectionVertices();
+    if (verts.size() < 2) {
+        setStatus("Rotation précise : sélectionnez au moins 2 sommets");
+        return;
+    }
+    pushUndo();
+    Vec2 c{0.0f, 0.0f};
+    for (int v : verts) c = c + scene.activePlane().vertices[v];
+    c = c / (float)verts.size();
+    rotateSelectionAround(c, deg);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf),
+                  "Rotation précise de %.1f° autour du centre de la sélection", deg);
+    setStatus(buf);
+    std::snprintf(buf, sizeof(buf), "Rotation précise de %.1f°", deg);
+    logMsg(buf);
+}
+
 void App::rotateAllPlanesAround(const Vec2& pivot, float deg) {
     rotDeg += deg;  // angle cumulé affiché au HUD (rot X°), remis à zéro par Ctrl+0
     const float rad = deg * kPi / 180.0f;
@@ -1351,6 +1402,24 @@ void App::copySelection() {
 void App::cutSelection() {
     copySelection();
     deleteSelection();
+}
+
+void App::duplicateSelection() {
+    if (selectionCount() == 0) {
+        setStatus("Dupliquer : sélection vide");
+        return;
+    }
+    // Copie puis colle : le collage décale d'un demi-pas de grille et rend la
+    // copie sélectionnée — prête à être déplacée (Ctrl+D pour redoubler). On
+    // restaure l'offset cumulé pour que les Ctrl+V suivants restent prévisibles.
+    const Vec2 savedOffset = clipOffset;
+    copySelection();
+    clipOffset = savedOffset;
+    pasteClipboard();
+    clipOffset = savedOffset;
+    setStatus("Sélection dupliquée et décalée — glissez pour la déplacer · "
+              "Ctrl+D pour redoubler");
+    logMsg("Sélection dupliquée");
 }
 
 void App::pasteClipboard() {
@@ -1622,6 +1691,31 @@ void App::selectAll() {
     setStatus("Tout sélectionner (" + std::to_string(selectionCount()) + " élément(s))");
 }
 
+void App::invertSelection() {
+    if (selMode == SelMode::Vertex) {
+        std::vector<int> inv;
+        for (int i = 0; i < (int)scene.activePlane().vertices.size(); ++i)
+            if (std::find(selVerts.begin(), selVerts.end(), i) == selVerts.end())
+                inv.push_back(i);
+        selVerts = std::move(inv);
+    } else if (selMode == SelMode::Edge) {
+        const auto all = scene.activePlane().edges();
+        std::vector<Mesh2D::Edge> inv;
+        for (const auto& e : all)
+            if (std::find(selEdges.begin(), selEdges.end(), e) == selEdges.end())
+                inv.push_back(e);
+        selEdges = std::move(inv);
+    } else {
+        std::vector<int> inv;
+        for (int i = 0; i < (int)scene.activePlane().faces.size(); ++i)
+            if (std::find(selFaces.begin(), selFaces.end(), i) == selFaces.end())
+                inv.push_back(i);
+        selFaces = std::move(inv);
+    }
+    setStatus("Sélection inversée (" + std::to_string(selectionCount()) + " élément(s))");
+    logMsg("Sélection inversée (" + std::to_string(selectionCount()) + " élément(s))");
+}
+
 void App::resetScene() {
     scene.clear();
     clearSelection();
@@ -1848,6 +1942,7 @@ void App::savePrefsFile() {
     p.brushOpacity = brushOpacity;
     p.circleSides = circleSides;
     p.edgePickTol = edgePickTol;
+    p.mergeRadius = mergeRadius;
     p.locations = saveLocations;
     p.importMode = dlgImportReplace ? 0 : 1;
     p.allColors = allColors;
@@ -1872,6 +1967,7 @@ void App::loadPrefsFile() {
     brushOpacity = p.brushOpacity;
     circleSides = p.circleSides;
     edgePickTol = std::clamp(p.edgePickTol, 2.0f, 30.0f);
+    mergeRadius = std::clamp(p.mergeRadius, 8, 64);
     saveLocations = p.locations;
     dlgImportReplace = (p.importMode == 0);
     consoleVisible = p.consoleVisible;

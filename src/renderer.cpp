@@ -243,4 +243,14 @@ void Renderer::drawPoints(const std::vector<Vec2>& pts, float sizePx, const Colo
     pfnDrawArrays(GL_POINTS, 0, (GLsizei)pts.size());
 }
 
+std::vector<unsigned char> Renderer::readPixelsRGBA() const {
+    std::vector<unsigned char> px((size_t)vw_ * (size_t)vh_ * 4u);
+    if (vw_ <= 0 || vh_ <= 0) return {};
+    // Lit le contenu actuel du tampon d'affichage (la scène vient d'être
+    // dessinée, l'interface n'est pas encore rendue) — lignes bas en haut.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(vx_, vy_, vw_, vh_, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    return px;
+}
+
 }  // namespace mesh

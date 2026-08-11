@@ -19,6 +19,7 @@ find_package(OpenGL REQUIRED)
 add_library(meshcore STATIC
   src/io.cpp
   src/mesh.cpp
+  src/pngexport.cpp
   src/svgparse.cpp
   src/triangulate.cpp
 )

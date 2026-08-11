@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -230,26 +231,57 @@ void handleShortcuts(App& app) {
         app.setStatus("Zoom 100 % recentré sur l'origine, angle de rotation remis à zéro (Ctrl+0)");
     }
 
+    // --- Sélection ---
+    if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_D))
+        app.duplicateSelection();
+    if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_A))
+        app.selectAll();
+    if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_I))
+        app.invertSelection();
+
+    // Tout afficher : zoom automatique sur la scène entière (Accueil).
+    if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
+        app.frameView();
+        app.setStatus("Tout afficher : zoom automatique sur la scène entière (Accueil)");
+    }
+
     if (ImGui::IsKeyPressed(ImGuiKey_G)) {
         app.gridOn = !app.gridOn;
         app.setStatus(app.gridOn ? "Grille affichée (G)" : "Grille masquée (G)");
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_R)) app.cycleReticle();
+    if (ImGui::IsKeyPressed(ImGuiKey_Y)) app.cycleReticle();  // Y : R est pris par le rectangle
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
         app.showRedraw = !app.showRedraw;
         app.setStatus(app.showRedraw ? "Compteur de redessins affiché (F)"
                                      : "Compteur de redessins masqué (F)");
     }
     if (ImGui::IsKeyPressed(ImGuiKey_P)) app.cyclePreview();
-    if (ImGui::IsKeyPressed(ImGuiKey_C)) {
-        if (app.tool == Tool::Circle) {
-            app.tool = Tool::Select;
-            app.setStatus("Mode cercle désactivé (C)");
-        } else {
-            app.startShapeTool(Tool::Circle);
-            app.setStatus("Mode cercle activé (C) — molette : nombre de côtés");
+
+    // Raccourcis des formes : une touche dédiée par forme prédéfinie (4.2).
+    // Ctrl/Alt exclus (Ctrl+C copie, Alt+R ouvre la rotation précise…).
+    auto toggleShape = [&](Tool t, ImGuiKey key, const char* name) {
+        if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(key)) {
+            if (app.tool == t) {
+                app.cancelShapeTrace();  // abandonne un éventuel tracé en cours
+                app.tool = Tool::Select;
+                app.setStatus(std::string("Forme « ") + name + " » désarmée");
+            } else {
+                app.startShapeTool(t);
+            }
         }
-    }
+    };
+    toggleShape(Tool::Circle, ImGuiKey_C, "cercle");
+    toggleShape(Tool::Rectangle, ImGuiKey_R, "rectangle");
+    toggleShape(Tool::Triangle, ImGuiKey_T, "triangle");
+    toggleShape(Tool::Square, ImGuiKey_Q, "carré");
+    toggleShape(Tool::Pentagon, ImGuiKey_N, "pentagone");
+    toggleShape(Tool::Hexagon, ImGuiKey_H, "hexagone");
+    toggleShape(Tool::Star, ImGuiKey_E, "étoile");
+    toggleShape(Tool::Ring, ImGuiKey_A, "anneau");
+
+    // Rotation précise : saisie d'un angle exact (Alt+R).
+    if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R))
+        app.dlgRotateOpen = true;
 
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
         app.toVertexSelection();
@@ -311,7 +343,7 @@ void toolbar(App& app) {
     ImGui::TextDisabled("%.2f", app.gridStep);
 
     ImGui::SameLine();
-    if (toolBtnIcon("reticle", "Réticule (R) : désactivé / simple / symétrique",
+    if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
                     app.reticle != ReticleState::Off, kGreen, false))
         app.cycleReticle();
 
@@ -324,6 +356,12 @@ void toolbar(App& app) {
     if (toolBtnIcon("show-all-fills", "Toutes couleurs : remplir tous les plans pendant l'édition (7.6)",
                     app.allColors, kGreen, false))
         app.allColors = !app.allColors;
+
+    ImGui::SameLine();
+    if (toolBtnIcon("fit-view",
+                    "Tout afficher (Accueil) : zoom automatique sur la scène entière",
+                    false, kGreen, false))
+        app.frameView();
 
     ImGui::SameLine();
     char fpsbuf[32];
@@ -347,6 +385,12 @@ void toolbar(App& app) {
     if (toolBtnIcon("paste", "Coller (Ctrl+V) — chaque collage décale d'un demi-pas de grille",
                     false, kGreen, !app.hasClip))
         app.pasteClipboard();
+    ImGui::SameLine();
+    if (toolBtnIcon("duplicate",
+                    "Dupliquer la sélection (Ctrl+D) — copie légèrement décalée, "
+                    "prête à déplacer",
+                    false, kGreen, app.selectionCount() == 0))
+        app.duplicateSelection();
 
     ImGui::SameLine();
     if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
@@ -359,6 +403,11 @@ void toolbar(App& app) {
         app.alignOpen = !app.alignOpen;
 
     ImGui::SameLine();
+    if (toolBtnIcon("rotate", "Rotation précise (Alt+R) : saisir un angle exact",
+                    app.dlgRotateOpen, kGreen, false))
+        app.dlgRotateOpen = !app.dlgRotateOpen;
+
+    ImGui::SameLine();
     if (toolBtnIcon("shapes", "Formes prédéfinies (cercle, carré, étoile, anneau…)",
                     app.shapesOpen || app.isShapeArmed(), kGreen, false))
         app.shapesOpen = !app.shapesOpen;
@@ -369,9 +418,21 @@ void toolbar(App& app) {
         app.dlgResetOpen = true;
 
     ImGui::SameLine();
-    if (toolBtnIcon("select-all", "Sélectionner tous les points du plan actif", false,
-                    kGreen, false))
+    // Bouton dédié à la sélection : clic gauche = tout sélectionner (Ctrl+A) ;
+    // clic droit = menu contextuel (tout sélectionner / inverser la sélection).
+    if (toolBtnIcon("select-all",
+                    "Sélection — clic gauche : tout sélectionner (Ctrl+A) · "
+                    "clic droit : menu (tout / inverser)",
+                    false, kGreen, false))
         app.selectAll();
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
+    if (ImGui::BeginPopup("##selmenu")) {
+        if (ImGui::MenuItem("Tout sélectionner", "Ctrl+A")) app.selectAll();
+        if (ImGui::MenuItem("Inverser la sélection", "Ctrl+I")) app.invertSelection();
+        ImGui::Separator();
+        ImGui::TextDisabled("Selon la cible (sommet / segment / triangle)");
+        ImGui::EndPopup();
+    }
     ImGui::SameLine();
     if (app.selectionCount() > 0)
         pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen);
@@ -764,6 +825,9 @@ void shapesPanel(App& app) {
         ImGui::TextDisabled("Molette sur le canvas ou le bouton actif (cercle/anneau) : "
                             "nombre de côtés.");
         ImGui::TextDisabled("Clic droit ou Retour arrière : annuler le tracé · Échap : quitter.");
+        ImGui::Separator();
+        ImGui::TextDisabled("Raccourcis : C cercle · R rectangle · T triangle · Q carré");
+        ImGui::TextDisabled("N pentagone · H hexagone · É étoile · A anneau");
     }
     ImGui::End();
 }
@@ -889,16 +953,40 @@ void consoleWindow(App& app) {
     bool open = app.consoleVisible;
     if (ImGui::Begin("Console", &open, ImGuiWindowFlags_NoCollapse)) {
         app.consoleVisible = open;
+        static char filter[64] = {0};
         if (toolBtnIcon("clear-console", "Vider la console", false, kGreen, false,
                         "Vider"))
             app.consoleLog.clear();
         ImGui::SameLine();
         ImGui::TextDisabled("%zu entrée(s)", app.consoleLog.size());
         ImGui::SameLine();
-        ImGui::TextDisabled("Fenêtre déplaçable et redimensionnable.");
+        ImGui::SetNextItemWidth(150.0f);
+        ImGui::InputText("##filter", filter, sizeof(filter));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Filtrer les messages par mot-clé "
+                              "(sans tenir compte des majuscules).");
+        ImGui::SameLine();
+        if (toolBtnIcon("search", "Effacer le filtre de recherche", filter[0] != 0,
+                        kGreen, false))
+            filter[0] = '\0';
         ImGui::Separator();
         ImGui::BeginChild("##log", ImVec2(0, 0), false);
-        for (const auto& line : app.consoleLog) ImGui::TextUnformatted(line.c_str());
+        std::string needle = filter;
+        std::transform(needle.begin(), needle.end(), needle.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        size_t shown = 0;
+        for (const auto& line : app.consoleLog) {
+            if (!needle.empty()) {
+                std::string l = line;
+                std::transform(l.begin(), l.end(), l.begin(),
+                               [](unsigned char c) { return (char)std::tolower(c); });
+                if (l.find(needle) == std::string::npos) continue;
+            }
+            ImGui::TextUnformatted(line.c_str());
+            ++shown;
+        }
+        if (shown == 0 && !needle.empty())
+            ImGui::TextDisabled("Aucun message ne correspond à « %s ».", filter);
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f)
             ImGui::SetScrollHereY(1.0f);
         ImGui::EndChild();
@@ -925,7 +1013,9 @@ void settingsPanel(App& app) {
                               "triangle (mode sommet) — vaut aussi pour la "
                               "sélection en cible « segment ».");
         ImGui::Separator();
-        ImGui::TextDisabled("Valeur mémorisée dans les préférences.");
+        ImGui::TextDisabled("Mémorisé entre les sessions (préférences).");
+        ImGui::TextDisabled("Le rayon de fusion par déplacement (molette sur le bouton "
+                            "« Fusionner ») est aussi mémorisé.");
     }
     ImGui::End();
 }
@@ -942,8 +1032,12 @@ void helpWindow(App& app) {
         ImGui::BulletText("Ctrl+C / Ctrl+X / Ctrl+V : copier / couper / coller");
         ImGui::BulletText("Ctrl+S : enregistrer (fenêtre d'emplacement)");
         ImGui::BulletText("Ctrl+0 : zoom 100 %% recentré");
-        ImGui::BulletText("G : grille · R : réticule · F : compteur de redessins · P : prévisualiser");
-        ImGui::BulletText("C : mode cercle · ? : cette aide · Échap : quitter le mode en cours");
+        ImGui::BulletText("G : grille · Y : réticule · F : compteur de redessins · P : prévisualiser");
+        ImGui::BulletText("Accueil : tout afficher (zoom automatique sur la scène)");
+        ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau");
+        ImGui::BulletText("Ctrl+D : dupliquer la sélection · Ctrl+A : tout sélectionner · Ctrl+I : inverser la sélection");
+        ImGui::BulletText("Alt+R : rotation précise (saisie d'un angle)");
+        ImGui::BulletText("? : cette aide · Échap : quitter le mode en cours");
         ImGui::BulletText("Alt+← / Alt+→ : aligner X / Y · Alt+Maj+←/→ : répartir X / Y");
         ImGui::BulletText("Alt+↑ / Alt+↓ : monter / descendre le plan actif (empilement)");
         ImGui::BulletText("Alt+K : kiosque de sélection des plans (au moins 2 plans)");
@@ -955,6 +1049,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");
+        ImGui::BulletText("PNG (bouton dans la prévisualisation) : exporter la vue actuelle en image");
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
@@ -990,8 +1085,13 @@ void previewButton(App& app) {
         "preview",
         "Prévisualisation — clic : changer d'état · Échap, clic gauche ou Ctrl+S : sortir",
         true, planes ? kAmber : kGreen, false, planes ? "Plans" : "Aperçu");
+    ImGui::SameLine();
+    const bool pngClicked = toolBtnIcon(
+        "export", "Exporter l'image actuelle en PNG (prévisualisation)", false, kGreen,
+        false, "PNG");
     ImGui::PopFont();
     if (clicked) app.cyclePreview();
+    if (pngClicked) app.dlgPngOpen = true;
     ImGui::End();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
@@ -1021,9 +1121,12 @@ void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl,
         std::min((br.x - tl.x - pad * 2.0f) / span, (br.y - tl.y - pad * 2.0f) / span);
     const float cx = (tl.x + br.x) * 0.5f;
     const float cy = (tl.y + br.y) * 0.5f;
+    // Le monde a Y vers le haut, l'écran Y vers le bas : on soustrait pour que
+    // le haut de la forme apparaisse en haut de la carte (l'ancien code
+    // inversait les plans verticalement dans le kiosque).
     auto toCard = [&](const Vec2& w) {
         return ImVec2(cx + (w.x - cw.x) / span * scale * squash,
-                      cy + (w.y - cw.y) / span * scale);
+                      cy - (w.y - cw.y) / span * scale);
     };
 
     // Faces (triangulées, avec leurs couleurs).
@@ -1374,6 +1477,77 @@ void deletePlaneDialog(App& app) {
     }
 }
 
+// Rotation précise : saisie d'un angle exact (Alt+R).
+void rotateDialog(App& app) {
+    if (!app.dlgRotateOpen) return;
+    ImGui::OpenPopup("Rotation précise");
+    ImGui::SetNextWindowSize(ImVec2(340, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Rotation précise", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Angle de rotation (degrés, sens trigonométrique) :");
+        ImGui::SetNextItemWidth(180);
+        ImGui::InputFloat("##deg", &app.rotateDeg, 1.0f, 15.0f, "%.1f°");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Valeur positive : sens trigonométrique ; "
+                              "négative : sens horaire.");
+        ImGui::TextDisabled("Le pivot est le centre de la sélection (≥ 2 sommets).");
+        if (toolBtnIcon("check", "Appliquer la rotation à la sélection", false,
+                        kGreen, false, "Appliquer", 120.0f) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
+            app.rotateSelectionExact(app.rotateDeg);
+            app.dlgRotateOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 120.0f)) {
+            app.dlgRotateOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgRotateOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// Export d'image : chemin du fichier PNG (la capture est honorée à la frame
+// suivante par App::exportPngIfRequested, après le rendu de la scène).
+void pngDialog(App& app) {
+    if (!app.dlgPngOpen) return;
+    ImGui::OpenPopup("Exporter l'image (PNG)");
+    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Exporter l'image (PNG)", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Chemin du fichier PNG (par ex. ~/scene.png) :");
+        ImGui::SetNextItemWidth(470);
+        ImGui::InputText("##pngpath", app.dlgPngPath, sizeof(app.dlgPngPath));
+        ImGui::TextDisabled("L'image correspond à la vue actuelle (prévisualisation "
+                            "ou édition), sans l'interface.");
+        bool doExport = false;
+        if (toolBtnIcon("export", "Exporter la vue actuelle en PNG", false, kGreen,
+                        false, "Exporter", 150.0f) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
+            doExport = true;
+        if (doExport) {
+            app.exportPngPath = app.dlgPngPath;
+            app.exportPngRequested = true;
+            app.dlgPngOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+            app.dlgPngOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgPngOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -1425,6 +1599,7 @@ void frame(App& app) {
     // seul le bouton de bascule reste visible — le rendu d'aperçu occupe tout.
     if (app.preview != PreviewMode::Off) {
         previewButton(app);
+        pngDialog(app);
         return;
     }
 
@@ -1439,6 +1614,8 @@ void frame(App& app) {
     importDialog(app);
     resetDialog(app);
     deletePlaneDialog(app);
+    rotateDialog(app);
+    pngDialog(app);
 }
 
 bool quitRequested() { return g_quit; }
