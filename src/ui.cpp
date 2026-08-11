@@ -459,12 +459,17 @@ void toolbar(App& app) {
     // boutons passe sur la ligne suivante dès qu'il n'y tient plus : aucun
     // bouton n'est jamais masqué, quelle que soit la largeur de la fenêtre.
     const float margin = 8.0f;
+    // Largeur de la barre = largeur de la fenêtre de l'application moins les
+    // marges. Le repli est calculé par rapport à CETTE valeur (déterministe),
+    // pas par rapport à la largeur courante de la fenêtre ImGui : avec
+    // AlwaysAutoResize, celle-ci n'est connue qu'en fin de frame, ce qui
+    // empêchait le repli de se déclencher (tout restait sur une ligne).
     const float maxW = std::max(260.0f, io.DisplaySize.x - 2.0f * margin);
     ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_Always);
-    // Largeur FORCÉE à maxW (min = max) : avec AlwaysAutoResize seul, la
-    // fenêtre ne connaît sa largeur réelle qu'en fin de frame, et un paquet
-    // placé d'après maxW pouvait dépasser cette largeur (boutons coupés).
-    // Largeur figée dès le début de la frame : le repli est exact.
+    // Largeur FORCÉE à celle de la fenêtre (min = max) : la barre remplit
+    // toute la largeur quelle que soit la ligne la plus large. Le repli est
+    // déterministe (largeurs réelles des paquets, cf. placePack), il ne dépend
+    // pas de la largeur courante de la fenêtre — pas de boucle de taille.
     ImGui::SetNextWindowSizeConstraints(ImVec2(maxW, 0.0f),
                                         ImVec2(maxW, FLT_MAX));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.11f, 0.14f, 0.92f));
@@ -477,6 +482,9 @@ void toolbar(App& app) {
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float groupSepW = 16.0f;  // groupSep() : 7 + 2 + 7 px
     const float bw = toolBtnWidth(nullptr);  // bouton à icône seule
+    // Largeur de contenu disponible : largeur cible de la barre moins le
+    // rembourrage de la fenêtre ImGui (padding gauche + droite).
+    const float contentW = maxW - 2.0f * ImGui::GetStyle().WindowPadding.x;
 
     // Largeur totale d'un paquet : somme des items + espacements internes.
     auto packW = [&](std::initializer_list<float> ws) {
@@ -491,19 +499,29 @@ void toolbar(App& app) {
     // Place le paquet suivant : même ligne avec séparateur s'il tient dans la
     // largeur restante, sinon en tête de la ligne suivante — aucun bouton n'est
     // jamais masqué, la barre se replie dynamiquement sur la largeur de la fenêtre.
-    // NB : NewLine() seul ne ramène pas le curseur à gauche — SetCursorPosX(0)
-    // le ramène au début de la ligne (relatif au contenu de la fenêtre).
+    // Largeur déjà consommée sur la ligne courante. On ne peut PAS mesurer la
+    // ligne avec GetCursorPosX() : après chaque item, ImGui ramène le curseur X
+    // au début de ligne (ItemSize), SameLine() ne l'avance que temporairement
+    // pour l'item suivant — après le dernier item d'un paquet, le curseur est
+    // donc TOUJOURS au début de ligne. On tient notre propre comptabilité, et
+    // le repli est calculé sur les largeurs réelles des paquets (packW), qui
+    // correspondent exactement au rendu (toolBtnWidth / pillWidth partagés).
+    float lineX = 0.0f;
     auto placePack = [&](float w) {
-        const float x = ImGui::GetCursorPosX();
-        if (x <= 0.0f) return;  // début de ligne (1er paquet ou après repli)
-        // GetContentRegionAvail().x = largeur restante RÉELLE de la fenêtre :
-        // si le paquet (avec son séparateur) n'y tient pas, il passe à la ligne
-        // suivante — aucun bouton ne reste jamais partiellement hors fenêtre.
-        if (w + groupSepW <= ImGui::GetContentRegionAvail().x) {
+        if (lineX == 0.0f) {
+            lineX = w;  // premier paquet de la ligne : pas de séparateur
+            return;
+        }
+        if (lineX + groupSepW + w <= contentW) {
             groupSep();
+            lineX += groupSepW + w;
         } else {
+            // Repli : NewLine() (le curseur X est déjà au début de ligne après
+            // ItemSize) ; on le replaçe explicitement par sécurité au cas où un
+            // paquet se terminerait un jour par un SameLine() en trop.
             ImGui::NewLine();
-            ImGui::SetCursorPosX(0.0f);
+            ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x);
+            lineX = w;
         }
     };
 
