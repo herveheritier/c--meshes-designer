@@ -372,9 +372,8 @@ void toolbar(App& app) {
 
     // --- Groupe 1 : canevas / édition ---
     if (toolBtnIcon("grid",
-                    "Grille (G) — clic gauche : afficher/masquer · molette : ajuster "
-                    "le pas · clic du milieu : réinitialiser · clic droit : "
-                    "aimantation on/off (Maj+G)",
+                    "Grille (G) : afficher/masquer · molette : ajuster le pas · "
+                    "clic du milieu : réinitialiser",
                     app.gridOn, kGreen, false))
         app.gridOn = !app.gridOn;
     if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
@@ -386,45 +385,22 @@ void toolbar(App& app) {
         app.gridStep = 1.0f;
         app.setStatus("Pas de grille réinitialisé (1.0)");
     }
-    // Clic droit sur le bouton Grille : aimantation on/off (sans toucher à
-    // l'affichage) — accessible là où l'utilisateur cherche.
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+    ImGui::SameLine();
+    // Bouton Aimant : active / désactive l'aimantation, indépendamment de
+    // l'affichage de la grille. Vert = aimantation active.
+    if (toolBtnIcon("magnet", "Aimantation (Maj+G) : aimanter les points posés et "
+                    "déplacés sur la grille",
+                    app.snapOn, kGreen, false)) {
         app.snapOn = !app.snapOn;
-        app.setStatus(app.snapOn ? "Aimantation activée (clic droit — Maj+G)"
-                                 : "Aimantation désactivée (clic droit — Maj+G)");
-    }
-    // Badge « aimant barré » rouge sur le coin du bouton Grille quand
-    // l'aimantation est désactivée (même technique que le cadenas de fusion).
-    if (!app.snapOn) {
-        const ImVec2 bmin = ImGui::GetItemRectMin();
-        const ImVec2 bmax = ImGui::GetItemRectMax();
-        drawSvgIconNamed(ImGui::GetWindowDrawList(), "magnet-off",
-                         ImVec2(bmax.x - 12.0f, bmin.y + 1.0f), 11.0f,
-                         IM_COL32(255, 130, 120, 255));
+        app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                 : "Aimantation désactivée (Maj+G)");
     }
     ImGui::SameLine();
-    // Cellule du pas de grille à largeur FIXE : sert aussi d'INDICATEUR
-    // d'aimantation. Active : icône « aimant » verte + valeur normale.
-    // Désactivée : icône « aimant barré » rouge + valeur en ambre — sans
-    // décaler la barre ni déplacer le texte d'un état à l'autre.
+    // Cellule du pas de grille à largeur FIXE (la valeur ne décale pas la barre).
     {
         char stepbuf[16];
         std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
-        const float cellW = ImGui::CalcTextSize("100.00").x + 16.0f;  // réserve l'icône
-        ImGui::Dummy(ImVec2(cellW, btnFrameHeight()));
-        const ImVec2 cmin = ImGui::GetItemRectMin();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 ts = ImGui::CalcTextSize(stepbuf);
-        const float cy = cmin.y + btnFrameHeight() * 0.5f;
-        const float iconW = 16.0f;
-        float cx = cmin.x + (cellW - ts.x - iconW) * 0.5f;
-        drawSvgIconNamed(dl, app.snapOn ? "magnet-on" : "magnet-off",
-                         ImVec2(cx, cy - 7.0f), 14.0f,
-                         app.snapOn ? IM_COL32(90, 190, 120, 255)
-                                    : IM_COL32(245, 115, 105, 250));
-        cx += iconW;
-        dl->AddText(ImVec2(cx, cy - ts.y * 0.5f),
-                    app.snapOn ? kDimCol : IM_COL32(245, 190, 90, 245), stepbuf);
+        valueLabel(stepbuf, ImGui::CalcTextSize("100.00").x + 10.0f);
     }
     ImGui::SameLine();
     if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
@@ -1266,7 +1242,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
-        ImGui::BulletText("Clic droit sur le bouton Grille : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
+        ImGui::BulletText("Bouton Aimant de la barre d'outils : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
         ImGui::BulletText("Historique (barre d'outils) : versions horodatées de l'autosave — restaurer un état antérieur");
         ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
         ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
