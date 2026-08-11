@@ -627,10 +627,12 @@ void toolbar(App& app) {
         }
         ImGui::EndPopup();
     }
+    // Compteur de sélection TOUJOURS présent (0 inclus) : la barre d'outils ne
+    // change pas de dimension selon la sélection (la pilule a une largeur fixe
+    // suffisante pour les plus grands compteurs).
     ImGui::SameLine();
-    if (app.selectionCount() > 0)
-        pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen,
-             nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
+    pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen, nullptr,
+         ImGui::CalcTextSize("9999").x + 18.0f);
 
     // --- Fusion des points (5.5 / 5.6) ---
     const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
