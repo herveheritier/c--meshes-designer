@@ -21,25 +21,18 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ---
 
-## À réaliser
-
-### Idées d'évolutions supplémentaires (hors spec)
-
-> Exemples à compléter, ajuster et prioriser au fil du temps.
-
-- [ ] **Tout afficher** : ajuster automatiquement le zoom pour voir la scène entière en un raccourci.
-- [ ] **Dupliquer la sélection** (Ctrl+D) : crée une copie des éléments sélectionnés, légèrement décalée, prête à être déplacée.
-- [ ] **Rotation précise** : saisir un angle exact dans une fenêtre de dialogue pour faire pivoter la sélection.
-- [ ] **Exporter en image** : générer un fichier image (PNG) de la scène depuis le mode prévisualisation.
-- [ ] **Recherche dans la console** : filtrer les messages par mot-clé.
-- [ ] **Raccourcis des formes** : touche dédiée pour chaque forme prédéfinie (cercle, rectangle, étoile, anneau…).
-- [ ] **Image inversée dans kiosque** : les plans sont dessinées à tort avec inversion du haut et du bas ; corriger.
-- [ ] **Détection** : mémoriser entre 2 sessions les distances de détection qui sont paramétrées par l'utilisateur
-- [ ] **Inverser la sélection** : bouton et raccourci créer ; ce bouton et le bouton tout sélectionner sont des boutons qui doivent apparaitre au clic droit sur un bouton dédié à la sélection ; comportement similaire à un menu contextuel
----
-
 ## Effectuées
 
+- 2026-08-11 · `57ec966` — Idées d'évolutions : tout afficher (Accueil : zoom
+  automatique sur la scène entière), dupliquer la sélection (Ctrl+D : copie légèrement
+  décalée, prête à déplacer), rotation précise (Alt+R : saisie d'un angle, pivot = centre
+  de la sélection), export de la vue en image PNG (bouton dans la prévisualisation),
+  recherche dans la console (filtre par mot-clé), raccourcis des formes (C cercle,
+  R rectangle, T triangle, Q carré, N pentagone, H hexagone, É étoile, A anneau ; le
+  réticule passe de R à Y), inversion de la sélection (Ctrl+I ; le bouton « tout
+  sélectionner » devient un bouton de sélection dont le clic droit ouvre un menu : tout
+  sélectionner / inverser), mémorisation entre sessions du rayon de fusion par
+  déplacement, et correction de l'image inversée des plans dans le kiosque.
 - 2026-08-11 · `4b7f52a` — Aide prospective au survol des entités (13) : au survol d'un
   sommet, le toast indique « sélectionner ce sommet — clic droit pour le déplacer » ; sur
   une arête de triangle, « Clic gauche pour créer un nouveau triangle à partir de ce
