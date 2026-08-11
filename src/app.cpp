@@ -34,6 +34,7 @@ const Color kVertDim{0.50f, 0.56f, 0.66f, 0.55f};   // points atténués des pla
 const Color kVertHover{1.0f, 1.0f, 1.0f, 1.0f};
 const Color kVertSel{1.00f, 0.80f, 0.20f, 1.0f};
 const Color kPreview{0.40f, 0.95f, 1.00f, 0.95f};
+const Color kPreviewFill{0.40f, 0.95f, 1.00f, 0.16f};   // remplissage translucide de l'aperçu
 const Color kMergeRing{1.00f, 0.55f, 0.15f, 0.95f};       // anneau orange des points superposés (5.5)
 const Color kMergeRadius{0.45f, 0.92f, 0.50f, 0.55f};     // rayon de fusion par déplacement (5.6)
 const Color kMergeRadiusFill{0.45f, 0.92f, 0.50f, 0.09f};
@@ -297,7 +298,7 @@ void App::update(float dt) {
             }
             rotateAllPlanesAround(mouseWorld, 5.0f * io.MouseWheel);
         } else if (isShapeTool(tool) && (tool == Tool::Circle || tool == Tool::Ring)) {
-            circleSides = std::clamp(circleSides + (int)io.MouseWheel, 3, 64);
+            circleSides = std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
         } else if (drag_.kind == DragKind::None && tool == Tool::Select &&
                    selectionVertices().size() >= 2) {
             if (!rotUndoPushed_) {
@@ -1123,8 +1124,12 @@ void App::completeShape() {
     const Vec2& a = drag_.shapeAnchor;
     const Vec2& c = drag_.shapeCur;
     const Vec2 d = c - a;
-    const float rad = length(d);
-    const float ang = std::atan2(d.y, d.x);
+    // Anneau et étoile : le 2e clic VERROUILLE le rayon et l'orientation ; en
+    // phase 3, le curseur ne règle plus que la taille du trou (anneau) ou la
+    // profondeur (étoile) — le rayon créé doit rester celui verrouillé.
+    const bool locked = drag_.shapeStage >= 2 && (tool == Tool::Ring || tool == Tool::Star);
+    const float rad = locked ? drag_.shapeRadius : length(d);
+    const float ang = locked ? drag_.shapeAngle : std::atan2(d.y, d.x);
 
     if (rad < 1e-4f) {
         setStatus("Forme dégénérée, ignorée");
@@ -2256,59 +2261,145 @@ void App::drawDragPreview() {
     }
 }
 
+// Aperçu du tracé de forme : la forme est VISIBLE (remplissage cyan
+// translucide) avec son contour (périmètre, et pourtour du trou pour l'anneau)
+// — sans les arêtes internes (rayons de l'éventail, parois du trou).
 void App::drawShapeOutline() {
     const Vec2& a = drag_.shapeAnchor;
     const Vec2& c = drag_.shapeCur;
     const Vec2 d = c - a;
-    const float rad = length(d);
-    const float ang = std::atan2(d.y, d.x);
-    std::vector<Vec2> poly;
+    // Comme dans completeShape : une fois verrouillé (2e clic), le rayon et
+    // l'orientation de l'anneau/étoile ne bougent plus avec le curseur.
+    const bool locked = drag_.shapeStage >= 2 && (tool == Tool::Ring || tool == Tool::Star);
+    const float rad = locked ? drag_.shapeRadius : length(d);
+    const float ang = locked ? drag_.shapeAngle : std::atan2(d.y, d.x);
+    std::vector<Vec2> poly, fill, segs;
 
-    auto rimPts = [&](int n, float r, float baseAng) {
-        poly.clear();
+    auto rimPts = [&](int n, float r, float baseAng, std::vector<Vec2>& out) {
+        out.clear();
         for (int i = 0; i <= n; ++i) {
             const float aa = baseAng + (float)i * 2.0f * kPi / (float)n;
-            poly.push_back({a.x + std::cos(aa) * r, a.y + std::sin(aa) * r});
+            out.push_back({a.x + std::cos(aa) * r, a.y + std::sin(aa) * r});
+        }
+    };
+    // Remplissage d'un polygone régulier en éventail depuis le centre.
+    auto fanFill = [&](int n, float r, float baseAng) {
+        fill.clear();
+        for (int i = 0; i < n; ++i) {
+            const float a0 = baseAng + (float)i * 2.0f * kPi / (float)n;
+            const float a1 = baseAng + (float)(i + 1) * 2.0f * kPi / (float)n;
+            fill.push_back(a);
+            fill.push_back({a.x + std::cos(a0) * r, a.y + std::sin(a0) * r});
+            fill.push_back({a.x + std::cos(a1) * r, a.y + std::sin(a1) * r});
         }
     };
 
+    // drawLines attend des PAIRES de sommets (GL_LINES) : un polygone fermé
+    // (P0…Pn avec Pn = P0) est déroulé en segments consécutifs avant le tracé,
+    // sinon seul un segment sur deux serait dessiné (contour incomplet).
+    auto drawPolygon = [&](const std::vector<Vec2>& p) {
+        segs.clear();
+        if (p.size() < 2) return;
+        segs.reserve((p.size() - 1) * 2);
+        for (size_t i = 0; i + 1 < p.size(); ++i) {
+            segs.push_back(p[i]);
+            segs.push_back(p[i + 1]);
+        }
+        renderer.drawLines(segs, kPreview);
+    };
+
     switch (tool) {
-        case Tool::Rectangle:
-            poly = {a, {c.x, a.y}, c, {a.x, c.y}, a};
-            break;
-        case Tool::Square: {
-            const float s = std::max(std::fabs(d.x), std::fabs(d.y));
-            poly = {a, {a.x + std::copysign(s, d.x), a.y},
-                    {a.x + std::copysign(s, d.x), a.y + std::copysign(s, d.y)},
-                    {a.x, a.y + std::copysign(s, d.y)}, a};
+        case Tool::Rectangle: {
+            const Vec2 p0{std::min(a.x, c.x), std::min(a.y, c.y)};
+            const Vec2 p1{std::max(a.x, c.x), std::max(a.y, c.y)};
+            poly = {p0, {p1.x, p0.y}, p1, {p0.x, p1.y}, p0};
+            fill = {p0, {p1.x, p0.y}, p1, p0, p1, {p0.x, p1.y}};  // 2 triangles
             break;
         }
-        case Tool::Circle: rimPts(circleSides, rad, ang); break;
-        case Tool::Triangle: rimPts(3, rad, ang); break;
-        case Tool::Pentagon: rimPts(5, rad, ang); break;
-        case Tool::Hexagon: rimPts(6, rad, ang); break;
+        case Tool::Square: {
+            const float s = std::max(std::fabs(d.x), std::fabs(d.y));
+            const Vec2 p0{a.x, a.y};
+            const Vec2 p1{a.x + std::copysign(s, d.x), a.y + std::copysign(s, d.y)};
+            const Vec2 p2{a.x + std::copysign(s, d.x), a.y};
+            const Vec2 p3{a.x, a.y + std::copysign(s, d.y)};
+            poly = {p0, p2, p1, p3, p0};
+            fill = {p0, p2, p1, p0, p1, p3};
+            break;
+        }
+        case Tool::Circle:
+            rimPts(circleSides, rad, ang, poly);
+            fanFill(circleSides, rad, ang);
+            break;
+        case Tool::Triangle: {
+            // Un seul triangle, sans point central (addRimPolygon).
+            std::vector<Vec2> pts;
+            for (int i = 0; i < 3; ++i) {
+                const float aa = ang + (float)i * 2.0f * kPi / 3.0f;
+                pts.push_back({a.x + std::cos(aa) * rad, a.y + std::sin(aa) * rad});
+            }
+            poly = {pts[0], pts[1], pts[2], pts[0]};
+            fill = {pts[0], pts[1], pts[2]};
+            break;
+        }
+        case Tool::Pentagon:
+            rimPts(5, rad, ang, poly);
+            fanFill(5, rad, ang);
+            break;
+        case Tool::Hexagon:
+            rimPts(6, rad, ang, poly);
+            fanFill(6, rad, ang);
+            break;
         case Tool::Star: {
             const int n = circleSides;
             const float depth = drag_.shapeStage >= 2 ? drag_.shapeInner : 0.5f;
             poly.clear();
+            fill.clear();
             for (int i = 0; i <= n * 2; ++i) {
                 const float aa = ang + (float)i * kPi / (float)n;
                 const float r = (i % 2 == 0) ? rad : rad * depth;
                 poly.push_back({a.x + std::cos(aa) * r, a.y + std::sin(aa) * r});
             }
+            for (int i = 0; i < n * 2; ++i) {
+                const float aa = ang + (float)i * kPi / (float)n;
+                const float ab = ang + (float)(i + 1) * kPi / (float)n;
+                const float ra = (i % 2 == 0) ? rad : rad * depth;
+                const float rb = ((i + 1) % 2 == 0) ? rad : rad * depth;
+                fill.push_back(a);
+                fill.push_back({a.x + std::cos(aa) * ra, a.y + std::sin(aa) * ra});
+                fill.push_back({a.x + std::cos(ab) * rb, a.y + std::sin(ab) * rb});
+            }
             break;
         }
         case Tool::Ring: {
             const float hole = drag_.shapeStage >= 2 ? drag_.shapeInner : 0.5f;
-            rimPts(circleSides, rad, ang);
-            renderer.drawLines(poly, kPreview);
-            rimPts(circleSides, rad * hole, ang);
-            renderer.drawLines(poly, kPreview);
+            // Remplissage de l'anneau (quads jante → trou), sans les parois.
+            fill.clear();
+            for (int i = 0; i < circleSides; ++i) {
+                const float aa = ang + (float)i * 2.0f * kPi / (float)circleSides;
+                const float ab = ang + (float)(i + 1) * 2.0f * kPi / (float)circleSides;
+                const Vec2 oa{a.x + std::cos(aa) * rad, a.y + std::sin(aa) * rad};
+                const Vec2 ob{a.x + std::cos(ab) * rad, a.y + std::sin(ab) * rad};
+                const Vec2 ia{a.x + std::cos(aa) * rad * hole, a.y + std::sin(aa) * rad * hole};
+                const Vec2 ib{a.x + std::cos(ab) * rad * hole, a.y + std::sin(ab) * rad * hole};
+                fill.push_back(oa);
+                fill.push_back(ob);
+                fill.push_back(ib);
+                fill.push_back(oa);
+                fill.push_back(ib);
+                fill.push_back(ia);
+            }
+            renderer.drawTriangles(fill, kPreviewFill);
+            // Contours : périmètre extérieur puis pourtour du trou.
+            rimPts(circleSides, rad, ang, poly);
+            drawPolygon(poly);
+            rimPts(circleSides, rad * hole, ang, poly);
+            drawPolygon(poly);
             return;
         }
         default: break;
     }
-    renderer.drawLines(poly, kPreview);
+    renderer.drawTriangles(fill, kPreviewFill);
+    drawPolygon(poly);
 }
 
 }  // namespace mesh

@@ -712,6 +712,7 @@ void viewport(App& app) {
 // ---------------------------------------------------------------------------
 void shapesPanel(App& app) {
     if (!app.shapesOpen) return;
+    const ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(12, 64), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(220, 0), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Formes", &app.shapesOpen)) {
@@ -740,10 +741,28 @@ void shapesPanel(App& app) {
         for (const auto& s : shapes) {
             if (toolBtnIcon(s.icon, s.tip, app.tool == s.tool, kGreen, false, s.label))
                 app.startShapeTool(s.tool);
+            // 4.2 : la molette sur le bouton Cercle / Anneau règle le nombre de
+            // côtés (comme sur le canvas), et le compteur reste affiché en
+            // permanence à côté du bouton — armé ou non.
+            const bool sidesShape = s.tool == Tool::Circle || s.tool == Tool::Ring;
+            if (sidesShape) {
+                if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+                    app.circleSides =
+                        std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    app.setStatus("Nombre de côtés du " +
+                                  std::string(s.tool == Tool::Circle ? "cercle" : "anneau") +
+                                  " : " + std::to_string(app.circleSides));
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+                                     (btnFrameHeight() - ImGui::GetFrameHeight()) * 0.5f);
+                ImGui::TextDisabled("%d côtés", app.circleSides);
+            }
         }
         ImGui::Separator();
         ImGui::TextDisabled("2 clics : ancre puis valider · étoile et anneau : 3 clics");
-        ImGui::TextDisabled("Molette sur le canvas (cercle/anneau) : nombre de côtés.");
+        ImGui::TextDisabled("Molette sur le canvas ou le bouton actif (cercle/anneau) : "
+                            "nombre de côtés.");
         ImGui::TextDisabled("Clic droit ou Retour arrière : annuler le tracé · Échap : quitter.");
     }
     ImGui::End();
