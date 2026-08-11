@@ -28,13 +28,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 > Évolutions décrites dans la spécification mais pas encore implémentées.
 > Les références (§) renvoient aux chapitres de `FONCTIONNALITES.md`.
 
-- [ ] **Fusion des points superposés** (5.5) : signaler par un anneau orange les points
-  qui occupent la même position ; un clic sur l'anneau les sélectionne tous ; un bouton
-  « Fusionner » les regroupe en un seul point placé à la position moyenne.
-- [ ] **Fusion par déplacement** (5.6) : avec exactement un point sélectionné, le bouton
-  « Fusionner » arme un mode où l'on glisse le point près d'un autre pour les fusionner ;
-  le rayon de fusion se règle à la molette sur le bouton (8 à 64 px, défaut 20) et un
-  2e clic verrouille le mode pour enchaîner les fusions (cadenas).
 - [ ] **Molette sur le bouton de la forme active** (4.2) : régler aussi le nombre de côtés
   du cercle et de l'anneau à la molette sur le bouton (aujourd'hui réglable uniquement
   sur le canvas).
@@ -53,11 +46,20 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 - [ ] **Exporter en image** : générer un fichier image (PNG) de la scène depuis le mode prévisualisation.
 - [ ] **Recherche dans la console** : filtrer les messages par mot-clé.
 - [ ] **Raccourcis des formes** : touche dédiée pour chaque forme prédéfinie (cercle, rectangle, étoile, anneau…).
+- [ ] **Image inversée dans kiosque** : les plans sont dessinées à tort avec inversion du haut et du bas ; corriger.
+- [ ] **Détection** : mémoriser entre 2 sessions les distances de détection qui sont paramétrées par l'utilisateur
 
 ---
 
 ## Effectuées
 
+- 2026-08-11 · `28afde3` — Fusion des points superposés (5.5) : anneau orange à chaque
+  position où plusieurs points coïncident, clic sur l'anneau qui sélectionne tous les
+  points superposés, bouton « Fusionner » qui les regroupe à la position moyenne. Fusion
+  par déplacement (5.6) : avec un point sélectionné, le bouton arme un mode (vert, rayon
+  affiché) où relâcher le point près d'un autre les fusionne ; rayon réglable à la molette
+  (8 à 64 px, défaut 20), 2e clic qui verrouille (cadenas) pour enchaîner, 3e clic qui
+  désarme.
 - 2026-08-11 · `e2976ce` — Rotation de tous les plans autour du curseur (AltGr + molette,
   5° par cran, angle cumulé `rot X°` remis à zéro par Ctrl+0) et déplacement de tous les
   plans d'un même décalage (AltGr + clic droit + glisser), sans bouger la vue.

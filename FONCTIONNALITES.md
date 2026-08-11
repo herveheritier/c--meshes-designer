@@ -282,8 +282,8 @@ Avec **exactement un point sélectionné**, le bouton Fusionner arme un mode de
 
 - glisser le point sélectionné puis le **relâcher près d'un autre point** (à moins du rayon affiché) les **fusionne** en un seul point ;
 - le rayon de fusion est réglable à la **molette de la souris sur le bouton** (de 8 à 64 pixels à l'écran, défaut 20 ; indépendant du zoom) ;
-- un **re-clic** sur le bouton désarme le mode ;
-- un **2e clic quand le mode est armé** le **verrouille** (cadenas sur le bouton) : les fusions réussies s'enchaînent sans avoir à réarmer, jusqu'à désarmement.
+- **chaque clic sur le bouton** fait avancer le mode : **armé** (bouton vert, rayon affiché) → **verrouillé** (cadenas sur le bouton) → **désarmé**, puis à nouveau armé au clic suivant ;
+- en mode **verrouillé**, les fusions réussies **s'enchaînent** sans avoir à réarmer, jusqu'au clic qui désarme le mode.
 
 ### 5.7 Tout sélectionner
 
