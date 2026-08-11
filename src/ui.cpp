@@ -461,7 +461,11 @@ void toolbar(App& app) {
     const float margin = 8.0f;
     const float maxW = std::max(260.0f, io.DisplaySize.x - 2.0f * margin);
     ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_Always);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f),
+    // Largeur FORCÉE à maxW (min = max) : avec AlwaysAutoResize seul, la
+    // fenêtre ne connaît sa largeur réelle qu'en fin de frame, et un paquet
+    // placé d'après maxW pouvait dépasser cette largeur (boutons coupés).
+    // Largeur figée dès le début de la frame : le repli est exact.
+    ImGui::SetNextWindowSizeConstraints(ImVec2(maxW, 0.0f),
                                         ImVec2(maxW, FLT_MAX));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.11f, 0.14f, 0.92f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
@@ -473,7 +477,6 @@ void toolbar(App& app) {
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float groupSepW = 16.0f;  // groupSep() : 7 + 2 + 7 px
     const float bw = toolBtnWidth(nullptr);  // bouton à icône seule
-    const float contentW = maxW - 2.0f * ImGui::GetStyle().WindowPadding.x;
 
     // Largeur totale d'un paquet : somme des items + espacements internes.
     auto packW = [&](std::initializer_list<float> ws) {
@@ -493,7 +496,10 @@ void toolbar(App& app) {
     auto placePack = [&](float w) {
         const float x = ImGui::GetCursorPosX();
         if (x <= 0.0f) return;  // début de ligne (1er paquet ou après repli)
-        if (x + groupSepW + w <= contentW) {
+        // GetContentRegionAvail().x = largeur restante RÉELLE de la fenêtre :
+        // si le paquet (avec son séparateur) n'y tient pas, il passe à la ligne
+        // suivante — aucun bouton ne reste jamais partiellement hors fenêtre.
+        if (w + groupSepW <= ImGui::GetContentRegionAvail().x) {
             groupSep();
         } else {
             ImGui::NewLine();
