@@ -27,6 +27,11 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `505a90e` — Interface : confirmation à la fermeture de la
+  fenêtre quand la scène contient des modifications non enregistrées
+  (dialogue « Quitter sans enregistrer ? » : Enregistrer puis quitter /
+  Quitter quand même / Annuler — la sortie reste immédiate quand la scène est
+  propre, et la demande est ignorée si un autre dialogue est déjà ouvert).
 - 2026-08-11 · `09eb175` — Interface : le choix des formes s'active en tant que
   menu contextuel (popup sur le bouton de la barre d'outils, molette pour les
   côtés/pointes) au lieu d'une fenêtre flottante, et les choix contextuels (tout
