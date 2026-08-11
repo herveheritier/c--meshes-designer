@@ -198,6 +198,8 @@ public:
     char dlgPngPath[1024] = {0};
     bool dlgSvgOpen = false;              // export SVG du plan actif
     char dlgSvgPath[1024] = {0};
+    bool dlgRenameOpen = false;           // renommer le plan actif
+    char dlgRenameName[64] = {0};
 
     // --- Export d'image (PNG depuis la prévisualisation) ---
     bool exportPngRequested = false;
@@ -236,6 +238,8 @@ public:
     void frameSelection();
     // Copie complète du plan actif, insérée juste au-dessus et sélectionnée.
     void duplicatePlane();
+    // Renomme le plan actif (spec 2.2) : nom vide = repli « Plan n ».
+    void renameActivePlane(const std::string& name);
     // Bascule de l'outil mesure (2 clics = distance affichée au HUD).
     void toggleMeasure();
     // Aire totale (somme des aires des faces) du plan actif, en unités monde.

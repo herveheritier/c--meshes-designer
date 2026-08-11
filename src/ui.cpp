@@ -23,7 +23,7 @@ bool anyModalOpen(const App& app) {
     return app.dlgSaveOpen || app.dlgImportOpen || app.dlgResetOpen ||
            app.dlgDeletePlaneOpen || app.dlgRotateOpen || app.dlgScaleOpen ||
            app.dlgPngOpen || app.dlgSvgOpen || app.dlgVersionsOpen ||
-           app.dlgQuitOpen;
+           app.dlgRenameOpen || app.dlgQuitOpen;
 }
 
 const ImVec4 kGreen(0.20f, 0.62f, 0.36f, 1.0f);
@@ -49,6 +49,14 @@ const char* selModeName(SelMode m) {
         case SelMode::Face: return "Triangle";
     }
     return "?";
+}
+
+// Nom affiché d'un plan (spec 2.2) : le nom personnalisé s'il existe, sinon
+// « Plan n » (n = numéro d'ordre, 1-based).
+std::string planeLabel(const App& app, int i) {
+    const Mesh2D& p = app.scene.planes[i];
+    if (!p.name.empty()) return p.name;
+    return "Plan " + std::to_string(i + 1);
 }
 
 std::string zoomText(float mult) {
@@ -204,7 +212,8 @@ void handleShortcuts(App& app) {
     // Ne jamais éditer la scène derrière une fenêtre modale.
     if (app.dlgSaveOpen || app.dlgImportOpen || app.dlgResetOpen ||
         app.dlgDeletePlaneOpen || app.dlgRotateOpen || app.dlgScaleOpen ||
-        app.dlgPngOpen || app.dlgSvgOpen || app.dlgVersionsOpen)
+        app.dlgPngOpen || app.dlgSvgOpen || app.dlgVersionsOpen ||
+        app.dlgRenameOpen)
         return;
 
     // En mode kiosque : seuls la sortie et le bouton du mode sont disponibles.
@@ -671,6 +680,13 @@ void toolbar(App& app) {
                     false, kGreen, n < 1))
         app.duplicatePlane();
     ImGui::SameLine();
+    if (toolBtnIcon("rename", "Renommer le plan actif (nom affiché au kiosque et au HUD)",
+                    app.dlgRenameOpen, kGreen, n < 1)) {
+        app.dlgRenameOpen = true;
+        std::snprintf(app.dlgRenameName, sizeof(app.dlgRenameName), "%s",
+                      planeLabel(app, app.scene.active).c_str());
+    }
+    ImGui::SameLine();
     if (toolBtnIcon("move-shape-up", "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
                     false, kGreen, app.scene.active >= n - 1))
         app.planeUp();
@@ -755,11 +771,12 @@ void hud(App& app, ImDrawList* dl, const ImVec2& size) {
     drawText(dl, 10.0f, y - 18.0f, buf, kDimCol);
     y -= 18.0f;
 
-    // Statistiques du plan actif : sommets, triangles et aire totale.
+    // Statistiques du plan actif : nom (éventuel), sommets, triangles et aire.
     {
         const Mesh2D& m = app.scene.activePlane();
-        std::snprintf(buf, sizeof(buf),
-                      "Plan %d/%d : %d sommets · %d triangles · aire %.2f",
+        std::snprintf(buf, sizeof(buf), "%s (%d/%d) : %d sommets · %d triangles · "
+                                         "aire %.2f",
+                      planeLabel(app, app.scene.active).c_str(),
                       app.scene.active + 1, app.scene.count(), (int)m.vertices.size(),
                       m.triangleCount(), app.activePlaneArea());
         drawText(dl, 10.0f, y - 18.0f, buf, kDimCol);
@@ -1445,10 +1462,10 @@ void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& siz
 
         const Mesh2D& p = app.scene.planes[i];
 
-        // Nom du plan directement sur la carte (bandeau discret en haut).
-        char name[32];
-        std::snprintf(name, sizeof(name), "Plan %d", i + 1);
-        const ImVec2 ns = ImGui::CalcTextSize(name);
+        // Nom du plan directement sur la carte (bandeau discret en haut) :
+        // le nom personnalisé s'il existe, sinon « Plan n ».
+        const std::string label = planeLabel(app, i);
+        const ImVec2 ns = ImGui::CalcTextSize(label.c_str());
         const float nameY = tl.y + 5.0f;
         if (cw > 44.0f) {
             dl->AddRectFilled(ImVec2(px - ns.x * 0.5f - 6.0f, nameY - 2.0f),
@@ -1457,7 +1474,7 @@ void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& siz
             dl->AddText(ImVec2(px - ns.x * 0.5f, nameY),
                         front ? IM_COL32(235, 245, 255, 240)
                               : IM_COL32(200, 210, 225, 150),
-                        name);
+                        label.c_str());
         }
 
         // Compteurs points / triangles en bas de carte.
@@ -1659,9 +1676,9 @@ void deletePlaneDialog(App& app) {
     ImGui::OpenPopup("Supprimer le plan actif ?");
     if (ImGui::BeginPopupModal("Supprimer le plan actif ?", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        char buf[96];
-        std::snprintf(buf, sizeof(buf), "Supprimer le plan n° %d ?",
-                      app.scene.active + 1);
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "Supprimer « %s » ?",
+                      planeLabel(app, app.scene.active).c_str());
         ImGui::TextUnformatted(buf);
         ImGui::TextUnformatted("L'opération est annulable (Ctrl+Z).");
         if (toolBtnIcon("delete-shape", "Supprimer le plan actif", false, kRed,
@@ -1676,6 +1693,40 @@ void deletePlaneDialog(App& app) {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             app.dlgDeletePlaneOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// Renommer le plan actif (spec 2.2) : le nom est affiché au kiosque, au HUD
+// et dans les dialogues. Champ pré-rempli (nom courant ou « Plan n »),
+// Entrée valide, Échap annule ; champ vidé = retour au nom par défaut.
+void renameDialog(App& app) {
+    if (!app.dlgRenameOpen) return;
+    ImGui::OpenPopup("Renommer le plan");
+    if (ImGui::BeginPopupModal("Renommer le plan", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Nom du plan actif (vide = nom par défaut) :");
+        ImGui::SetNextItemWidth(280);
+        ImGui::InputText("##name", app.dlgRenameName, sizeof(app.dlgRenameName),
+                         ImGuiInputTextFlags_AutoSelectAll);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Le nom est conservé dans le fichier JSON et affiché "
+                              "dans le kiosque, le HUD et les dialogues.");
+        if (toolBtnIcon("check", "Appliquer le nouveau nom", false, kGreen, false,
+                        "Renommer", 130.0f) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
+            app.renameActivePlane(app.dlgRenameName);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 130.0f)) {
+            app.dlgRenameOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgRenameOpen = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1972,6 +2023,7 @@ void frame(App& app) {
     importDialog(app);
     resetDialog(app);
     deletePlaneDialog(app);
+    renameDialog(app);
     rotateDialog(app);
     scaleDialog(app);
     pngDialog(app);

@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -48,6 +49,8 @@ class Mesh2D {
 public:
     std::vector<Vec2> vertices;
     std::vector<Face> faces;
+    // Nom du plan (spec 2.2 : facultatif, défaut « Plan n » affiché à l'écran).
+    std::string name;
 
     void clear();
     bool empty() const;

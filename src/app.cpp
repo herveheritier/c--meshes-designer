@@ -235,12 +235,14 @@ void App::update(float dt) {
         if (!scene.planes.empty()) {
             const int t = kioskTarget();
             const Mesh2D& p = scene.planes[t];
-            char msg[192];
+            char msg[224];
+            const std::string plabel =
+                p.name.empty() ? std::string() : " « " + p.name + " »";
             std::snprintf(msg, sizeof(msg),
-                          "Plan %d/%d%s — %d point(s), %d triangle(s) — "
+                          "Plan %d/%d%s%s — %d point(s), %d triangle(s) — "
                           "clic gauche : choisir ce plan · Échap / clic droit : sortir",
                           t + 1, scene.count(), t == scene.active ? " (actif)" : "",
-                          (int)p.vertices.size(), p.triangleCount());
+                          plabel.c_str(), (int)p.vertices.size(), p.triangleCount());
             setToast(msg, 3.0f);
         }
 
@@ -1630,7 +1632,12 @@ void App::setActivePlane(int i) {
     scene.active = i;
     clearSelection();
     triP1 = triP2 = -1;
-    setStatus("Plan " + std::to_string(i + 1) + " / " + std::to_string(scene.count()));
+    const std::string label =
+        scene.planes[i].name.empty()
+            ? std::string()
+            : " « " + scene.planes[i].name + " »";
+    setStatus("Plan " + std::to_string(i + 1) + " / " +
+              std::to_string(scene.count()) + label);
 }
 
 void App::nextPlane() {
@@ -1686,6 +1693,27 @@ void App::duplicatePlane() {
     setStatus("Plan dupliqué (n° " + std::to_string(at + 1) + "/" +
               std::to_string(scene.count()) + ") — Ctrl+Z pour annuler");
     logMsg("Plan dupliqué (n° " + std::to_string(at + 1) + ")");
+}
+
+void App::renameActivePlane(const std::string& name) {
+    if (scene.planes.empty()) return;
+    // Nom vide = repli sur le nom par défaut « Plan n » (spec 2.2).
+    std::string clean = name;
+    // Pas de retour à la ligne ni de séparateur : le nom est affiché tel quel
+    // dans le HUD, le kiosque et les dialogues.
+    while (!clean.empty() && (clean.back() == '\n' || clean.back() == '\r'))
+        clean.pop_back();
+    if (clean == scene.planes[scene.active].name) return;  // inchangé
+    pushUndo();
+    scene.planes[scene.active].name = clean;
+    dirty = true;
+    dlgRenameOpen = false;
+    setStatus("Plan renommé : « " +
+              (clean.empty()
+                   ? "Plan " + std::to_string(scene.active + 1)
+                   : clean) +
+              " »");
+    logMsg("Plan n° " + std::to_string(scene.active + 1) + " renommé");
 }
 
 void App::deletePlane() {

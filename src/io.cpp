@@ -219,6 +219,9 @@ std::string dumpJson(const JVal& v) {
 // ---------------------------------------------------------------------------
 JVal meshToJson(const Mesh2D& m) {
     JVal v = JVal::object();
+    // Nom du plan (facultatif) : émis seulement s'il est défini, pour que les
+    // fichiers existants restent identiques (repli « Plan n » à la lecture).
+    if (!m.name.empty()) v.obj.emplace_back("name", JVal::str(m.name));
     JVal verts = JVal::array();
     for (const Vec2& pt : m.vertices) {
         JVal p = JVal::array();
@@ -248,6 +251,7 @@ JVal meshToJson(const Mesh2D& m) {
 }
 
 bool meshFromJson(const JVal& v, Mesh2D& out, std::string& err) {
+    v.getStr("name", out.name);  // nom du plan (absent dans les anciens fichiers)
     const JVal* jv = v.find("verts");
     if (!jv || jv->t != JVal::T::Arr) {
         err = "JSON invalide : « verts » manquant ou mal formé";
