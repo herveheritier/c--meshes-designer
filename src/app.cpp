@@ -206,6 +206,16 @@ void App::update(float dt) {
     if (kiosk) {
         if (viewportHovered) kioskX = io.MousePos.x - viewportPos.x;
 
+        // Navigation clavier : les flèches gauche/droite parcourent les cartes
+        // (le pointeur reste la méthode principale ; la position est bornée).
+        {
+            const float step = viewportSize.x / (float)std::max(scene.count() - 1, 1);
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+                kioskX = std::clamp(kioskX - step, 0.0f, viewportSize.x);
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+                kioskX = std::clamp(kioskX + step, 0.0f, viewportSize.x);
+        }
+
         // Décalages par carte pilotés par un ressort légèrement sous-amorti :
         // le défilement glisse en douceur et rebondit à l'arrivée (cover-flow).
         {
@@ -235,12 +245,13 @@ void App::update(float dt) {
         if (!scene.planes.empty()) {
             const int t = kioskTarget();
             const Mesh2D& p = scene.planes[t];
-            char msg[224];
+            char msg[256];
             const std::string plabel =
                 p.name.empty() ? std::string() : " « " + p.name + " »";
             std::snprintf(msg, sizeof(msg),
                           "Plan %d/%d%s%s — %d point(s), %d triangle(s) — "
-                          "clic gauche : choisir ce plan · Échap / clic droit : sortir",
+                          "clic gauche : choisir ce plan · ←/→ : naviguer · "
+                          "Échap / clic droit : sortir",
                           t + 1, scene.count(), t == scene.active ? " (actif)" : "",
                           plabel.c_str(), (int)p.vertices.size(), p.triangleCount());
             setToast(msg, 3.0f);
@@ -1762,8 +1773,8 @@ void App::toggleKiosk() {
         const ImGuiIO& io = ImGui::GetIO();
         kioskX = io.MousePos.x - viewportPos.x;
         kioskFresh = true;
-        setStatus("Kiosque — déplacez la souris : le plan en avant est pré-sélectionné ; "
-                  "clic gauche : choisir ; Échap ou clic droit : sortir");
+        setStatus("Kiosque — déplacez la souris ou utilisez ←/→ : le plan en avant "
+                  "est pré-sélectionné ; clic gauche : choisir ; Échap ou clic droit : sortir");
     } else {
         setStatus("Retour à l'édition");
     }
