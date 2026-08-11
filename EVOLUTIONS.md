@@ -23,10 +23,16 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- ajouter un nouvel objet de type anneau (il faudra trouver commentle nommer) dont le nombre de coté extérieurs peut être différent du nombre de cotés intérieurs
-
 ## Effectuées
 
+- 2026-08-11 · `1709f7d` — Forme « couronne » : un anneau dont le nombre de
+  côtés extérieurs et intérieurs est indépendant (tracé en 3 clics : centre,
+  rayon, trou). Après le 2e clic, l'angle du curseur oriente la forme
+  intérieure ; la molette règle les côtés selon la phase du tracé (extérieurs
+  tant que le rayon n'est pas verrouillé, intérieurs ensuite, Maj+molette pour
+  l'autre jeu), avec un badge « ext. / int. » affiché en direct au canvas.
+  Raccourci O, compteurs mémorisés entre sessions, triangulation de la bande
+  sans croisement ni chevauchement.
 - 2026-08-11 · `8aed28a` — Interface : barre d'outils réorganisée en paquets
   cohérents (canevas, affichage, vue, sélection, presse-papiers, outils,
   fusion, annuler/rétablir, sauvegarde, entrées, plans, scène, interface) qui
