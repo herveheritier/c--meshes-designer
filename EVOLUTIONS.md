@@ -27,6 +27,9 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `99558d9` — Interface : bouton d'export d'image PNG dans la
+  barre d'outils (groupe Sauvegarde) — la vue actuelle s'exporte en image
+  depuis l'édition comme depuis la prévisualisation (sans l'interface).
 - 2026-08-11 · `58f302f` — Kiosque : navigation au clavier avec les flèches
   gauche/droite (le pointeur reste la méthode principale) ; le toast et le
   message d'activation le rappellent.
