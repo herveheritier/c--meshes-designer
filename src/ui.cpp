@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 namespace mesh::ui {
 
@@ -35,6 +36,10 @@ const ImU32 kDimCol = IM_COL32(150, 160, 180, 160);
 // Rembourrage des boutons à icônes : cadre plus haut et plus large pour une
 // meilleure lisibilité (la hauteur du bouton = police + 2 × FramePadding.y).
 const ImVec2 kBtnFramePad(7.0f, 5.0f);
+// Largeur automatique d'un bouton à libellé : texte + icône (18 px) + cette
+// marge. Partagée entre toolBtnIcon (largeur auto) et dialogBtnWidth (largeur
+// commune des boutons de dialogues) pour qu'elles ne puissent pas dériver.
+constexpr float kBtnAutoPad = 22.0f;
 
 // Hauteur d'un bouton à icône (police + rembourrage vertical du cadre).
 float btnFrameHeight() { return ImGui::GetFontSize() + 2.0f * kBtnFramePad.y; }
@@ -99,14 +104,19 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
     // (ex. « Quitter quand même » à 150 px). La garde max() ne change rien aux
     // boutons qui tiennent déjà, mais protège tous les dialogues quelle que
     // soit la police chargée sur la plateforme.
+    // Largeur « naturelle » d'un bouton auto ; une largeur fixe demandée ne
+    // peut jamais être plus étroite que cette valeur, sinon le texte déborderait
+    // du cadre (ex. « Quitter quand même » à 150 px) — la garde max() ne change
+    // rien aux boutons qui tiennent déjà, mais protège tous les dialogues
+    // quelle que soit la police chargée sur la plateforme.
     const float contentW = hasText ? iconSize + 8.0f + ts.x : iconSize;
+    const float autoW =
+        hasText ? ts.x + iconSize + kBtnAutoPad : iconSize + 14.0f;
     ImVec2 size;
     if (width > 0.0f)
-        size = ImVec2(std::max(width, contentW + 14.0f), 0.0f);
-    else if (hasText)
-        size = ImVec2(ts.x + iconSize + 22.0f, 0.0f);
+        size = ImVec2(std::max(width, autoW), 0.0f);
     else
-        size = ImVec2(iconSize + 14.0f, 0.0f);
+        size = ImVec2(autoW, 0.0f);
     if (disabled) ImGui::BeginDisabled();
     if (active) {
         ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
@@ -159,6 +169,19 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
     if (tip && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", tip);
     return clicked && !disabled;
+}
+
+// Largeur commune des boutons d'un dialogue de confirmation : le plus large
+// des libellés, avec l'icône (18 px) et les marges identiques aux boutons à
+// largeur auto de toolBtnIcon (ts.x + iconSize + 22). Tous les boutons d'un
+// même dialogue partagent cette largeur : ils restent alignés et aucun libellé
+// ne déborde, quelle que soit la police chargée sur la plateforme.
+float dialogBtnWidth(std::initializer_list<const char*> labels) {
+    float maxText = 0.0f;
+    for (const char* l : labels)
+        maxText = std::max(maxText, ImGui::CalcTextSize(l).x);
+    const float iconSize = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
+    return maxText + iconSize + kBtnAutoPad;
 }
 
 // Pilule verte (ou ambre) lisible avec un compteur, icône facultative.
@@ -1622,14 +1645,15 @@ void saveDialog(App& app) {
         ImGui::TextUnformatted("Nom de l'emplacement :");
         ImGui::SetNextItemWidth(420);
         ImGui::InputText("##name", app.dlgSaveName, sizeof(app.dlgSaveName));
+        const float bw = dialogBtnWidth({"Enregistrer", "Annuler"});
         if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S)", false, kGreen,
-                        false, "Enregistrer", 150.0f) ||
+                        false, "Enregistrer", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
             app.saveToLocation(app.dlgSaveName);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgSaveOpen = false;
             app.quitPending = false;  // sortie différée abandonnée
             ImGui::CloseCurrentPopup();
@@ -1659,9 +1683,10 @@ void importDialog(App& app) {
         ImGui::RadioButton("Remplacer (défaut)", &mode, 1);
         ImGui::SameLine();
         ImGui::RadioButton("Fusionner (ajoute aux plans existants)", &mode, 0);
+        const float bw = dialogBtnWidth({"Valider", "Annuler"});
         bool doImport = false;
         if (toolBtnIcon("check", "Valider l'import", false, kGreen, false,
-                        "Valider", 150.0f) ||
+                        "Valider", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
             doImport = true;
         if (doImport) {
@@ -1675,7 +1700,7 @@ void importDialog(App& app) {
             // En cas d'échec, l'erreur est signalée (status + console) sans fermer.
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgImportOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1694,13 +1719,14 @@ void resetDialog(App& app) {
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Vider entièrement la scène ?");
         ImGui::TextUnformatted("Cette action efface aussi l'historique d'annulation.");
+        const float bw = dialogBtnWidth({"Réinitialiser", "Annuler"});
         if (toolBtnIcon("reset", "Vider entièrement la scène", false, kRed, false,
-                        "Réinitialiser", 150.0f)) {
+                        "Réinitialiser", bw)) {
             app.resetScene();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgResetOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1722,13 +1748,14 @@ void deletePlaneDialog(App& app) {
                       planeLabel(app, app.scene.active).c_str());
         ImGui::TextUnformatted(buf);
         ImGui::TextUnformatted("L'opération est annulable (Ctrl+Z).");
+        const float bw = dialogBtnWidth({"Supprimer", "Annuler"});
         if (toolBtnIcon("delete-shape", "Supprimer le plan actif", false, kRed,
-                        false, "Supprimer", 150.0f)) {
+                        false, "Supprimer", bw)) {
             app.deletePlane();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgDeletePlaneOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1755,14 +1782,15 @@ void renameDialog(App& app) {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Le nom est conservé dans le fichier JSON et affiché "
                               "dans le kiosque, le HUD et les dialogues.");
+        const float bw = dialogBtnWidth({"Renommer", "Annuler"});
         if (toolBtnIcon("check", "Appliquer le nouveau nom", false, kGreen, false,
-                        "Renommer", 130.0f) ||
+                        "Renommer", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
             app.renameActivePlane(app.dlgRenameName);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 130.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgRenameOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1788,15 +1816,16 @@ void rotateDialog(App& app) {
             ImGui::SetTooltip("Valeur positive : sens trigonométrique ; "
                               "négative : sens horaire.");
         ImGui::TextDisabled("Le pivot est le centre de la sélection (≥ 2 sommets).");
+        const float bw = dialogBtnWidth({"Appliquer", "Annuler"});
         if (toolBtnIcon("check", "Appliquer la rotation à la sélection", false,
-                        kGreen, false, "Appliquer", 120.0f) ||
+                        kGreen, false, "Appliquer", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
             app.rotateSelectionExact(app.rotateDeg);
             app.dlgRotateOpen = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 120.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgRotateOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1823,15 +1852,16 @@ void scaleDialog(App& app) {
             ImGui::SetTooltip("Facteur strictement positif, différent de 1 ; "
                               "le pivot est le centre de la sélection.");
         ImGui::TextDisabled("Le pivot est le centre de la sélection (≥ 2 sommets).");
+        const float bw = dialogBtnWidth({"Appliquer", "Annuler"});
         if (toolBtnIcon("scale", "Appliquer la mise à l'échelle à la sélection", false,
-                        kGreen, false, "Appliquer", 130.0f) ||
+                        kGreen, false, "Appliquer", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
             app.scaleSelectionExact(app.scaleFactor);
             app.dlgScaleOpen = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 130.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgScaleOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1855,9 +1885,10 @@ void svgDialog(App& app) {
         ImGui::InputText("##svgpath", app.dlgSvgPath, sizeof(app.dlgSvgPath));
         ImGui::TextDisabled("Le fichier contient un polygone par face du plan actif, "
                             "avec les couleurs de remplissage — édition vectorielle.");
+        const float bw = dialogBtnWidth({"Exporter", "Annuler"});
         bool doExport = false;
         if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG", false, kGreen,
-                        false, "Exporter", 150.0f) ||
+                        false, "Exporter", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
             doExport = true;
         if (doExport) {
@@ -1865,7 +1896,7 @@ void svgDialog(App& app) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgSvgOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1886,6 +1917,7 @@ void versionsDialog(App& app) {
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Versions horodatées de l'autosave "
                                "(10 conservées, de la plus récente à la plus ancienne) :");
+        const float bw = dialogBtnWidth({"Restaurer", "Fermer"});
         ImGui::BeginChild("##versions", ImVec2(500, 170), true);
         if (app.versionFiles.empty()) {
             ImGui::TextDisabled("Aucune version pour l'instant.");
@@ -1895,7 +1927,7 @@ void versionsDialog(App& app) {
                 ImGui::TextUnformatted(app.versionFiles[i].c_str());
                 ImGui::SameLine();
                 if (toolBtnIcon("history", "Restaurer cette version", false, kGreen,
-                                false, "Restaurer", 110.0f))
+                                false, "Restaurer", bw))
                     app.restoreVersionFile(app.versionFiles[i]);
                 ImGui::PopID();
             }
@@ -1903,7 +1935,7 @@ void versionsDialog(App& app) {
         ImGui::EndChild();
         ImGui::TextDisabled("Restaurer remplace la scène courante par cette version "
                             "(annulable avec Ctrl+Z).");
-        if (toolBtnIcon("close", "Fermer", false, kGreen, false, "Fermer", 150.0f)) {
+        if (toolBtnIcon("close", "Fermer", false, kGreen, false, "Fermer", bw)) {
             app.dlgVersionsOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1928,9 +1960,10 @@ void pngDialog(App& app) {
         ImGui::InputText("##pngpath", app.dlgPngPath, sizeof(app.dlgPngPath));
         ImGui::TextDisabled("L'image correspond à la vue actuelle (prévisualisation "
                             "ou édition), sans l'interface.");
+        const float bw = dialogBtnWidth({"Exporter", "Annuler"});
         bool doExport = false;
         if (toolBtnIcon("export", "Exporter la vue actuelle en PNG", false, kGreen,
-                        false, "Exporter", 150.0f) ||
+                        false, "Exporter", bw) ||
             (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
             doExport = true;
         if (doExport) {
@@ -1940,7 +1973,7 @@ void pngDialog(App& app) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
             app.dlgPngOpen = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1964,15 +1997,8 @@ void quitDialog(App& app) {
         ImGui::TextUnformatted("La scène contient des modifications non enregistrées.");
         ImGui::TextUnformatted("Que voulez-vous faire ?");
         ImGui::Separator();
-        // Largeur commune des boutons : elle contient le libellé le plus long
-        // (« Quitter quand même ») quelle que soit la police, sinon le texte
-        // déborderait de la largeur fixe de 150 px.
-        const float iconSz = std::max(18.0f, ImGui::GetFontSize() - 1.0f);
-        const float lblW =
-            std::max({ImGui::CalcTextSize("Enregistrer").x,
-                      ImGui::CalcTextSize("Quitter quand même").x,
-                      ImGui::CalcTextSize("Annuler").x});
-        const float btnW = lblW + iconSz + 22.0f;
+        const float btnW =
+            dialogBtnWidth({"Enregistrer", "Quitter quand même", "Annuler"});
         if (toolBtnIcon("export", "Enregistrer la scène puis quitter (Ctrl+S)", false,
                         kGreen, false, "Enregistrer", btnW)) {
             app.dlgQuitOpen = false;
