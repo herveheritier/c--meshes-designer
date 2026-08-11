@@ -27,7 +27,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-11 · `?` — Interface : barre d'outils réorganisée en paquets
+- 2026-08-11 · `8aed28a` — Interface : barre d'outils réorganisée en paquets
   cohérents (canevas, affichage, vue, sélection, presse-papiers, outils,
   fusion, annuler/rétablir, sauvegarde, entrées, plans, scène, interface) qui
   se replient automatiquement à la largeur de la fenêtre — aucun bouton n'est
