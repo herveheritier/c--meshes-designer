@@ -27,6 +27,10 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `61f8810` — Sélection : déplacement au clavier avec les
+  flèches — 1 pas de grille par pression (Maj : ×5), une salve de flèches
+  rapprochées = une seule étape annulable ; la navigation clavier d'ImGui est
+  désactivée pour que les flèches restent déterministes.
 - 2026-08-11 · `476e4c3` — Plans : nommage des plans (spec 2.2) — bouton
   « Renommer » dans la barre d'outils (dialogue, Entrée valide, champ vidé =
   retour au nom par défaut « Plan n ») ; le nom est conservé dans le fichier
