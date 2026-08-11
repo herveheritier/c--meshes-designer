@@ -23,36 +23,25 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- **Clic-droit boutons** les choix contextuels doivent apparaître sous la forme de boutons
-- **Choix des formes** le choix des formes doit s'activer en tant que menu contextuel plutot que sous-fenetre
-- **Etoile variable** pour la forme étoile choisir comme pour le cercle et l'anneau le nombre de cotés
-- **Importer un fichier OBJ** : charger les triangles d'un fichier `.obj` (l'export
-  existe déjà), via le même dialogue d'import que JSON/meshes (remplacer ou fusionner).
-- **Miroir de la sélection** : symétrie X ou Y de la sélection par rapport au premier
-  point sélectionné (comme Aligner/Répartir), avec un raccourci dédié.
-- **Mettre à l'échelle la sélection** : agrandir ou réduire la sélection par saisie
-  d'un facteur, dans un dialogue comme la rotation précise (Alt+R).
-- **Cadrer la sélection** : zoom automatique sur la sélection courante (complément de
-  « Tout afficher »), avec un raccourci dédié.
-- **Aimantation indépendante de la grille** : pouvoir aimanter sur la grille sans
-  l'afficher, ou afficher la grille sans aimanter.
-- **Exporter un plan en SVG** : générer un fichier SVG vectoriel du plan actif
-  (contours des triangles).
-- **Sauvegardes horodatées** : conserver un historique des versions successives de
-  l'autosave pour pouvoir revenir en arrière.
-- **Statistiques du plan dans le HUD** : afficher le nombre de sommets, de triangles
-  et l'aire totale du plan actif.
-- **Outil mesure** : mode dédié pour mesurer la distance entre deux points, résultat
-  affiché dans le HUD.
-- **Dupliquer le plan actif** : copie complète du plan courant avec ses couleurs,
-  insérée juste au-dessus.
-- **Champs dynamiques de la barre d'outils à largeur fixe** : donner aux champs
-  dynamiques (zoom, angle de rotation, nombre de côtés, compteurs…) une taille fixe
-  indépendante du contenu, pour éviter les à-coups de mise en page quand les valeurs
-  changent.
+_(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `09eb175` — Interface : le choix des formes s'active en tant que
+  menu contextuel (popup sur le bouton de la barre d'outils, molette pour les
+  côtés/pointes) au lieu d'une fenêtre flottante, et les choix contextuels (tout
+  sélectionner / inverser la sélection) s'affichent sous forme de boutons larges.
+- 2026-08-11 · `30561c4` — 12 évolutions : côtés de l'étoile réglables à la molette
+  (bouton et canvas, compteur « pointes »), import de fichiers OBJ (remplacer ou
+  fusionner, glisser-déposer), miroir X/Y de la sélection autour du 1er point choisi
+  (M / Maj+M, panneau Aligner), mise à l'échelle précise par saisie d'un facteur
+  (Alt+S, pivot = centre), cadrage de la sélection (Ctrl+F, zoom automatique),
+  aimantation sur la grille indépendante de son affichage (Maj+G, préférences),
+  export du plan actif en SVG vectoriel (bouton + dialogue), versions horodatées de
+  l'autosave (10 conservées, dialogue de restauration annulable), statistiques du
+  plan dans le HUD (sommets, triangles, aire), outil mesure de distance entre deux
+  points (Ctrl+M, résultat au HUD), duplication du plan actif (Alt+D), et champs
+  dynamiques de la barre d'outils à largeur fixe (plus d'à-coups de mise en page).
 - 2026-08-11 · `57ec966` — Idées d'évolutions : tout afficher (Accueil : zoom
   automatique sur la scène entière), dupliquer la sélection (Ctrl+D : copie légèrement
   décalée, prête à déplacer), rotation précise (Alt+R : saisie d'un angle, pivot = centre
