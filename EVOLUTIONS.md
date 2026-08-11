@@ -27,6 +27,11 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `476e4c3` — Plans : nommage des plans (spec 2.2) — bouton
+  « Renommer » dans la barre d'outils (dialogue, Entrée valide, champ vidé =
+  retour au nom par défaut « Plan n ») ; le nom est conservé dans le fichier
+  JSON et affiché dans le kiosque (carte et toast), au HUD, dans la barre de
+  statut et dans la confirmation de suppression.
 - 2026-08-11 · `505a90e` — Interface : confirmation à la fermeture de la
   fenêtre quand la scène contient des modifications non enregistrées
   (dialogue « Quitter sans enregistrer ? » : Enregistrer puis quitter /
