@@ -24,13 +24,16 @@ enum class ReticleState { Off, Simple, Symmetric };
 enum class PreviewMode { Off, Simple, Planes };
 
 // --- Drag en cours ---
-enum class DragKind { None, Move, Box, Shape };
+enum class DragKind { None, Move, MoveAll, Box, Shape };
 
 struct Drag {
     DragKind kind = DragKind::None;
     std::vector<int> movingVerts;       // sommets déplacés (Move)
     std::vector<Vec2> startPositions;   // positions initiales (Move)
-    Vec2 grabWorld{0, 0};               // point de saisie en monde (Move)
+    // Positions initiales de tous les sommets de tous les plans (MoveAll).
+    // allPlaneStarts[i] = sommets du plan i au début du glisser (8.4).
+    std::vector<std::vector<Vec2>> allPlaneStarts;
+    Vec2 grabWorld{0, 0};               // point de saisie en monde (Move / MoveAll)
     Vec2 startScreen{0, 0};             // pixels, relatif au viewport (Box)
     Vec2 curScreen{0, 0};
     // Tracé de forme : 0 prêt · 1 ancre posée · 2 verrouillé (étoile/anneau)
@@ -201,6 +204,8 @@ public:
     void distributeX();
     void distributeY();
     void rotateSelectionAround(const Vec2& pivot, float deg);
+    // Rotation de TOUS les plans autour du pivot (8.3, AltGr + molette).
+    void rotateAllPlanesAround(const Vec2& pivot, float deg);
 
     // --- Presse-papiers ---
     void copySelection();
@@ -266,6 +271,10 @@ private:
     void beginMoveDrag(const Vec2& world);
     void endMoveDrag(const Vec2& world);
     void applyMove(const Vec2& world);
+    // Déplacement de tous les plans ensemble (8.4, AltGr + clic droit + glisser).
+    void beginMoveAllDrag(const Vec2& world);
+    void endMoveAllDrag(const Vec2& world);
+    void applyMoveAll(const Vec2& world);
     Vec2 snappedPoint(const Vec2& w) const;
     Vec2 snapDelta(Vec2 d) const;
     void drawGrid();

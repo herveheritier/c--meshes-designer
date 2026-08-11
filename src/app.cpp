@@ -54,6 +54,16 @@ bool nearMultiple(float x, float m) {
     return r < m * 0.02f || m - r < m * 0.02f;
 }
 
+// AltGr = touche Alt droite sur la plupart des claviers (spec 8.3). Selon les
+// claviers / systèmes, AltGr est délivré comme Ctrl+Alt simultanés (Windows) ou
+// comme la touche Menu (certains portables Linux) : on accepte toutes les formes
+// pour rester fiable en WLM.
+bool altGrDown() {
+    const ImGuiIO& io = ImGui::GetIO();
+    return ImGui::IsKeyDown(ImGuiKey_RightAlt) || ImGui::IsKeyDown(ImGuiKey_Menu) ||
+           (io.KeyAlt && io.KeyCtrl);
+}
+
 std::vector<Color> defaultPalette() {
     return {
         rgba(1.00f, 0.35f, 0.35f),  // rouge
@@ -270,9 +280,19 @@ void App::update(float dt) {
         return;
     }
 
-    // --- Molette : côtés du cercle/anneau, rotation de la sélection, ou zoom ---
+    // --- Molette : rotation globale (AltGr), côtés du cercle/anneau,
+    // rotation de la sélection, ou zoom ---
     if (io.MouseWheel != 0.0f && viewportHovered) {
-        if (isShapeTool(tool) && (tool == Tool::Circle || tool == Tool::Ring)) {
+        if (altGrDown() && drag_.kind == DragKind::None) {
+            // 8.3 : AltGr + molette fait pivoter TOUS les plans autour du
+            // curseur (5° par cran, cumulatif). Le pivot = position courante
+            // du curseur dans le repère : s'il bouge, le pivot suit.
+            if (!rotUndoPushed_) {
+                pushUndo();
+                rotUndoPushed_ = true;
+            }
+            rotateAllPlanesAround(mouseWorld, 5.0f * io.MouseWheel);
+        } else if (isShapeTool(tool) && (tool == Tool::Circle || tool == Tool::Ring)) {
             circleSides = std::clamp(circleSides + (int)io.MouseWheel, 3, 64);
         } else if (drag_.kind == DragKind::None && tool == Tool::Select &&
                    selectionVertices().size() >= 2) {
@@ -324,6 +344,14 @@ void App::update(float dt) {
                     drag_.kind = DragKind::None;
                 }
                 break;
+            case DragKind::MoveAll:
+                if (io.MouseDown[1]) {
+                    applyMoveAll(mouseWorld);
+                } else {
+                    endMoveAllDrag(mouseWorld);
+                    drag_.kind = DragKind::None;
+                }
+                break;
             case DragKind::Box: drag_.curScreen = mouseScreen; break;
             case DragKind::Shape:
                 drag_.shapeCur = snappedPoint(mouseWorld);
@@ -340,7 +368,11 @@ void App::update(float dt) {
     // --- Clic droit : sélection / déplacement de la sélection ---
     if (io.MouseClicked[1]) {
         if (drag_.kind == DragKind::Shape) {
-            cancelShapeTrace();  // annule le tracé en cours
+            cancelShapeTrace();  // annule le tracé en cours (4.2)
+        } else if (altGrDown()) {
+            // 8.4 : AltGr + clic droit arme le déplacement de TOUS les plans
+            // d'un même décalage (la vue ne bouge pas).
+            if (drag_.kind == DragKind::None) beginMoveAllDrag(mouseWorld);
         } else if (io.KeyCtrl) {
             addEntityToSelection(mouseWorld);  // ajoute sans déplacer, jamais de doublon
         } else if (drag_.kind == DragKind::None) {
@@ -677,6 +709,52 @@ void App::beginMoveDrag(const Vec2& world) {
     drag_.startPositions.reserve(verts.size());
     for (int v : verts) drag_.startPositions.push_back(scene.activePlane().vertices[v]);
     drag_.grabWorld = world;
+}
+
+void App::beginMoveAllDrag(const Vec2& world) {
+    pushUndo();
+    drag_.kind = DragKind::MoveAll;
+    drag_.allPlaneStarts.clear();
+    drag_.allPlaneStarts.reserve(scene.planes.size());
+    for (const Mesh2D& p : scene.planes)
+        drag_.allPlaneStarts.push_back(p.vertices);
+    drag_.grabWorld = world;
+    setStatus("Déplacement de tous les plans ensemble — AltGr+clic droit + glisser");
+}
+
+void App::applyMoveAll(const Vec2& world) {
+    Vec2 delta = world - drag_.grabWorld;
+    if (gridOn) delta = snapDelta(delta);
+    for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+        const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+        Mesh2D& p = scene.planes[i];
+        const size_t n = std::min(p.vertices.size(), start.size());
+        for (size_t j = 0; j < n; ++j) p.vertices[j] = start[j] + delta;
+    }
+}
+
+void App::endMoveAllDrag(const Vec2& world) {
+    (void)world;  // aucun picking au relâchement : on ne change pas la sélection
+    bool moved = false;
+    for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+        const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+        const Mesh2D& p = scene.planes[i];
+        const size_t n = std::min(p.vertices.size(), start.size());
+        for (size_t j = 0; j < n; ++j) {
+            if (distance(p.vertices[j], start[j]) > 1e-6f) {
+                moved = true;
+                break;
+            }
+        }
+        if (moved) break;
+    }
+    if (!moved) {
+        // AltGr + clic droit simple : aucun déplacement, on annule l'entrée.
+        undoStack.pop_back();
+    } else {
+        setStatus("Tous les plans déplacés d'un même décalage (AltGr+clic droit)");
+        logMsg("Tous les plans déplacés d'un même décalage");
+    }
 }
 
 void App::endMoveDrag(const Vec2& world) {
@@ -1059,6 +1137,20 @@ void App::rotateSelectionAround(const Vec2& pivot, float deg) {
     setStatus("Rotation de " + std::to_string((int)deg) + "° autour du curseur");
 }
 
+void App::rotateAllPlanesAround(const Vec2& pivot, float deg) {
+    rotDeg += deg;  // angle cumulé affiché au HUD (rot X°), remis à zéro par Ctrl+0
+    const float rad = deg * kPi / 180.0f;
+    const float cs = std::cos(rad);
+    const float sn = std::sin(rad);
+    for (Mesh2D& p : scene.planes) {
+        for (Vec2& v : p.vertices) {
+            const Vec2 d = v - pivot;
+            v = {pivot.x + d.x * cs - d.y * sn, pivot.y + d.x * sn + d.y * cs};
+        }
+    }
+    setStatus("Rotation de tous les plans de " + std::to_string((int)deg) + "° autour du curseur (AltGr+molette)");
+}
+
 // ---------------------------------------------------------------------------
 // Presse-papiers interne (5.8)
 // ---------------------------------------------------------------------------
@@ -1400,6 +1492,17 @@ void App::onEscape() {
         if (!undoStack.empty()) undoStack.pop_back();
         drag_.kind = DragKind::None;
         setStatus("Déplacement annulé");
+        return;
+    }
+    if (drag_.kind == DragKind::MoveAll) {
+        for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+            const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+            const size_t n = std::min(scene.planes[i].vertices.size(), start.size());
+            for (size_t j = 0; j < n; ++j) scene.planes[i].vertices[j] = start[j];
+        }
+        if (!undoStack.empty()) undoStack.pop_back();
+        drag_.kind = DragKind::None;
+        setStatus("Déplacement de tous les plans annulé");
         return;
     }
     if (drag_.kind == DragKind::Shape) {

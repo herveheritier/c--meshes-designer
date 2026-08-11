@@ -898,6 +898,8 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");
+        ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
+        ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés)");
         ImGui::BulletText("Engrenage (barre d'outils) : distance de détection des segments (illumination au survol)");

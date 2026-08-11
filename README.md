@@ -18,7 +18,7 @@ dans **`EVOLUTIONS.md`**.
 | **Construction** | Clic gauche sur une zone vide : 1er point, 2e point (segment), 3e clic ferme le triangle. Un clic **près d'un segment** crée directement un triangle complet accroché à ce segment. Aimantation sur la grille. |
 | **Formes prédéfinies** | Cercle, rectangle, carré, triangle, pentagone, hexagone (2 clics), étoile et anneau (3 clics). La molette règle le nombre de côtés (cercle/anneau, mémorisé). Touche `C` : mode cercle. |
 | **Sélection** | Cibles sommet / segment / triangle (bouton dédié). Clic, Maj+clic (bascule), Ctrl+clic droit (ajouter), clic droit (entité la plus proche), rectangle de sélection au clic gauche+glisser. |
-| **Manipulation** | Clic droit+glisser : déplacer la sélection · Molette avec ≥ 2 points sélectionnés : rotation de 5°/cran autour du curseur · Aligner X/Y et Répartir X/Y (panneau) · Tout sélectionner. |
+| **Manipulation** | Clic droit+glisser : déplacer la sélection · Molette avec ≥ 2 points sélectionnés : rotation de 5°/cran autour du curseur · AltGr+molette : rotation de tous les plans · AltGr+clic droit+glisser : déplacer tous les plans ensemble · Aligner X/Y et Répartir X/Y (panneau) · Tout sélectionner. |
 | **Presse-papiers** | Copier / couper / coller interne (Ctrl+C/X/V) : points + triangles entièrement contenus ; chaque collage décale d'un demi-pas de grille. |
 | **Peinture** | Palette personnalisable (8 défauts, ajout / suppression / modification / « Défauts »), pinceau, opacité (défaut 45 %). La couleur survit aux suppressions et aux annulations. |
 | **Grille & réticule** | Grille affichable (G), pas ajustable à la molette (clic milieu : défaut). Réticule 3 états (R). Zoom ×1,1 par cran, borné [0,1× ; 10×], Ctrl+0 recentre. |
@@ -78,7 +78,9 @@ cmake --build build --target meshtest
 Souris : clic gauche (vide) = poser un point (3 clics = un triangle) · clic gauche (entité) =
 sélectionner · Maj+clic = basculer · clic gauche+glisser = rectangle de sélection ·
 clic droit = entité la plus proche · clic droit+glisser = déplacer · molette = zoom ou
-rotation (≥ 2 points) · clic du milieu+glisser = déplacer la vue.
+rotation (≥ 2 points) · AltGr+molette = rotation de tous les plans (5°/cran) ·
+AltGr+clic droit+glisser = déplacer tous les plans ensemble · clic du milieu+glisser =
+déplacer la vue.
 
 ## Formats de fichiers
 
