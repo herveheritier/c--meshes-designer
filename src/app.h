@@ -158,7 +158,6 @@ public:
 
     // --- Panneaux flottants ---
     bool paletteOpen = false;
-    bool shapesOpen = false;
     bool alignOpen = false;
     bool settingsOpen = false;            // panneau « Réglages »
 

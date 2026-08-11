@@ -1142,7 +1142,6 @@ void App::startShapeTool(Tool t) {
     tool = t;
     drag_.kind = DragKind::None;
     drag_.shapeStage = 0;
-    shapesOpen = false;
     setStatus("Forme « " + std::string(toolName(t)) +
               " » armée — 1er clic : ancre, puis déplacez la souris, 2e clic : valider");
     logMsg("Forme « " + std::string(toolName(t)) + " » armée");

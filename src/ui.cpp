@@ -179,10 +179,12 @@ void drawText(ImDrawList* dl, float x, float y, const char* text, ImU32 col = kT
     dl->AddText(ImVec2(x, y), col, text);
 }
 
-// Déclarations anticipées (définies plus bas, utilisées par le viewport).
+// Déclarations anticipées (définies plus bas, utilisées par le viewport et la
+// barre d'outils).
 void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl, const ImVec2& br,
                    float squash, float alpha, bool front);
 void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& size);
+void shapesMenu(App& app);
 
 // ---------------------------------------------------------------------------
 // Raccourcis (spec ch. 15)
@@ -474,9 +476,26 @@ void toolbar(App& app) {
         app.dlgScaleOpen = !app.dlgScaleOpen;
 
     ImGui::SameLine();
-    if (toolBtnIcon("shapes", "Formes prédéfinies (cercle, carré, étoile, anneau…)",
-                    app.shapesOpen || app.isShapeArmed(), kGreen, false))
-        app.shapesOpen = !app.shapesOpen;
+    if (toolBtnIcon("shapes",
+                    "Formes prédéfinies — clic : menu contextuel "
+                    "(cercle, carré, étoile, anneau…) · molette : côtés/pointes "
+                    "si une forme à côtés est armée",
+                    app.isShapeArmed(), kGreen, false))
+        ImGui::OpenPopup("##shapesmenu");
+    // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
+        (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star)) {
+        app.circleSides =
+            std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+        app.setStatus("Nombre de " +
+                      std::string(app.tool == Tool::Star ? "pointes de l'étoile"
+                                                        : "côtés du " +
+                                                              std::string(app.tool == Tool::Circle
+                                                                              ? "cercle"
+                                                                              : "anneau")) +
+                      " : " + std::to_string(app.circleSides));
+    }
+    shapesMenu(app);
 
     ImGui::SameLine();
     if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
@@ -492,11 +511,20 @@ void toolbar(App& app) {
                     false, kGreen, false))
         app.selectAll();
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
+    // Les choix contextuels s'affichent sous forme de BOUTONS (visibles et
+    // larges), pas de simples entrées de menu.
     if (ImGui::BeginPopup("##selmenu")) {
-        if (ImGui::MenuItem("Tout sélectionner", "Ctrl+A")) app.selectAll();
-        if (ImGui::MenuItem("Inverser la sélection", "Ctrl+I")) app.invertSelection();
-        ImGui::Separator();
-        ImGui::TextDisabled("Selon la cible (sommet / segment / triangle)");
+        ImGui::TextDisabled("Actions sur la sélection (selon la cible) :");
+        if (toolBtnIcon("select-all", "Tout sélectionner (Ctrl+A)", false, kGreen,
+                        false, "Tout sélectionner", 190.0f)) {
+            app.selectAll();
+            ImGui::CloseCurrentPopup();
+        }
+        if (toolBtnIcon("select-all", "Inverser la sélection (Ctrl+I)", false, kGreen,
+                        false, "Inverser la sélection", 190.0f)) {
+            app.invertSelection();
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
     ImGui::SameLine();
@@ -890,73 +918,69 @@ void viewport(App& app) {
 // ---------------------------------------------------------------------------
 // Panneaux flottants
 // ---------------------------------------------------------------------------
-void shapesPanel(App& app) {
-    if (!app.shapesOpen) return;
+// Menu contextuel des formes prédéfinies (ouvert depuis le bouton de la barre
+// d'outils) : remplace l'ancienne fenêtre « Formes » — le choix des formes
+// s'active en tant que menu, pas en sous-fenêtre. La molette sur une ligne
+// cercle / anneau / étoile règle le nombre de côtés (ou pointes) et le
+// compteur reste affiché à largeur FIXE.
+void shapesMenu(App& app) {
+    if (!ImGui::BeginPopup("##shapesmenu")) return;
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(12, 64), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(220, 0), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Formes", &app.shapesOpen)) {
-        ImGui::TextDisabled("Choisir une forme l'arme, puis la tracer au canvas.");
-        ImGui::Separator();
-        struct ShapeEntry {
-            const char* icon;
-            const char* label;
-            const char* tip;
-            Tool tool;
-        };
-        const ShapeEntry shapes[] = {
-            {"shape-circle", "Cercle", "Cercle régulier — 2 clics (centre puis rayon)",
-             Tool::Circle},
-            {"shape-rect", "Rectangle", "Rectangle — 2 clics (coin puis étendue)",
-             Tool::Rectangle},
-            {"shape-square", "Carré", "Carré — 2 clics", Tool::Square},
-            {"shape-triangle", "Triangle", "Triangle — 2 clics", Tool::Triangle},
-            {"shape-pentagon", "Pentagone", "Pentagone — 2 clics", Tool::Pentagon},
-            {"shape-hexagon", "Hexagone", "Hexagone — 2 clics", Tool::Hexagon},
-            {"shape-star", "Étoile", "Étoile — 3 clics (centre, rayon, profondeur)",
-             Tool::Star},
-            {"shape-annulus", "Anneau", "Anneau — 3 clics (centre, rayon, trou)",
-             Tool::Ring},
-        };
-        for (const auto& s : shapes) {
-            if (toolBtnIcon(s.icon, s.tip, app.tool == s.tool, kGreen, false, s.label))
-                app.startShapeTool(s.tool);
-            // 4.2 : la molette sur le bouton Cercle / Anneau / Étoile règle le
-            // nombre de côtés (comme sur le canvas), et le compteur reste
-            // affiché en permanence à côté du bouton — armé ou non. La largeur
-            // du compteur est FIXE : la barre ne bouge pas quand la valeur
-            // change (3..64).
-            const bool sidesShape =
-                s.tool == Tool::Circle || s.tool == Tool::Ring || s.tool == Tool::Star;
-            if (sidesShape) {
-                if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-                    app.circleSides =
-                        std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-                    app.setStatus("Nombre de " +
-                                  std::string(s.tool == Tool::Star ? "pointes de l'étoile"
-                                                                   : "côtés du " +
-                                                                         std::string(s.tool == Tool::Circle
-                                                                                         ? "cercle"
-                                                                                         : "anneau")) +
-                                  " : " + std::to_string(app.circleSides));
-                }
-                ImGui::SameLine();
-                char sidesbuf[24];
-                std::snprintf(sidesbuf, sizeof(sidesbuf), "%d %s", app.circleSides,
-                              s.tool == Tool::Star ? "pointes" : "côtés");
-                valueLabel(sidesbuf, ImGui::CalcTextSize("64 côtés").x);
-            }
+    ImGui::TextDisabled("Choisir une forme l'arme, puis la tracer au canvas.");
+    ImGui::Separator();
+    struct ShapeEntry {
+        const char* icon;
+        const char* label;
+        const char* tip;
+        Tool tool;
+    };
+    const ShapeEntry shapes[] = {
+        {"shape-circle", "Cercle", "Cercle régulier — 2 clics (centre puis rayon)",
+         Tool::Circle},
+        {"shape-rect", "Rectangle", "Rectangle — 2 clics (coin puis étendue)",
+         Tool::Rectangle},
+        {"shape-square", "Carré", "Carré — 2 clics", Tool::Square},
+        {"shape-triangle", "Triangle", "Triangle — 2 clics", Tool::Triangle},
+        {"shape-pentagon", "Pentagone", "Pentagone — 2 clics", Tool::Pentagon},
+        {"shape-hexagon", "Hexagone", "Hexagone — 2 clics", Tool::Hexagon},
+        {"shape-star", "Étoile", "Étoile — 3 clics (centre, rayon, profondeur)",
+         Tool::Star},
+        {"shape-annulus", "Anneau", "Anneau — 3 clics (centre, rayon, trou)",
+         Tool::Ring},
+    };
+    for (const auto& s : shapes) {
+        if (toolBtnIcon(s.icon, s.tip, app.tool == s.tool, kGreen, false, s.label)) {
+            app.startShapeTool(s.tool);
+            ImGui::CloseCurrentPopup();
         }
-        ImGui::Separator();
-        ImGui::TextDisabled("2 clics : ancre puis valider · étoile et anneau : 3 clics");
-        ImGui::TextDisabled("Molette sur le canvas ou le bouton actif "
-                            "(cercle/anneau/étoile) : nombre de côtés.");
-        ImGui::TextDisabled("Clic droit ou Retour arrière : annuler le tracé · Échap : quitter.");
-        ImGui::Separator();
-        ImGui::TextDisabled("Raccourcis : C cercle · R rectangle · T triangle · Q carré");
-        ImGui::TextDisabled("N pentagone · H hexagone · É étoile · A anneau");
+        // 4.2 : la molette sur la ligne Cercle / Anneau / Étoile règle le
+        // nombre de côtés (comme sur le canvas).
+        const bool sidesShape =
+            s.tool == Tool::Circle || s.tool == Tool::Ring || s.tool == Tool::Star;
+        if (sidesShape) {
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+                app.circleSides =
+                    std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                app.setStatus("Nombre de " +
+                              std::string(s.tool == Tool::Star ? "pointes de l'étoile"
+                                                               : "côtés du " +
+                                                                     std::string(s.tool == Tool::Circle
+                                                                                     ? "cercle"
+                                                                                     : "anneau")) +
+                              " : " + std::to_string(app.circleSides));
+            }
+            ImGui::SameLine();
+            char sidesbuf[24];
+            std::snprintf(sidesbuf, sizeof(sidesbuf), "%d %s", app.circleSides,
+                          s.tool == Tool::Star ? "pointes" : "côtés");
+            valueLabel(sidesbuf, ImGui::CalcTextSize("64 côtés").x);
+        }
     }
-    ImGui::End();
+    ImGui::Separator();
+    ImGui::TextDisabled("2 clics : ancre puis valider · étoile et anneau : 3 clics.");
+    ImGui::TextDisabled("Molette sur une ligne (cercle/anneau/étoile) : nombre de côtés.");
+    ImGui::TextDisabled("Raccourcis : C R T Q N H É A · Retour arrière : annuler le tracé.");
+    ImGui::EndPopup();
 }
 
 void alignPanel(App& app) {
@@ -1848,7 +1872,6 @@ void frame(App& app) {
         // le voile plein écran (dessiné en dernier) : elle reste visible mais
         // inerte — le voile capte la souris et update() court-circuite le mode.
         toolbar(app);
-        shapesPanel(app);
         alignPanel(app);
         palettePanel(app);
         consoleWindow(app);
@@ -1866,7 +1889,6 @@ void frame(App& app) {
     }
 
     toolbar(app);
-    shapesPanel(app);
     alignPanel(app);
     palettePanel(app);
     consoleWindow(app);

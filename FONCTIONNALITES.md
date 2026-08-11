@@ -172,7 +172,8 @@ grille la plus proche.
 
 ### 4.2 Formes prédéfinies
 
-Un panneau **Formes** (bouton dédié) propose des formes toutes prêtes :
+Un **menu contextuel Formes** (bouton dédié de la barre d'outils, clic gauche)
+propose des formes toutes prêtes :
 **cercle, rectangle, carré, triangle, pentagone, hexagone, étoile, anneau**
 (cercle percé d'un trou). Choisir une forme l'arme, puis la tracer au canvas :
 
