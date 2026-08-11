@@ -23,8 +23,26 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
+- [ ] sélection au lasso : entourer d'un tracé libre (ou d'un rectangle de
+  sélection) plusieurs sommets, segments ou faces d'un coup, en plus de la
+  sélection clic par clic.
+- [ ] opacité par plan : régler la transparence de chaque plan indépendamment
+  (les faces ont déjà leur propre opacité), pour superposer des plans en les
+  laissant visibles les uns à travers les autres.
+- [ ] ordre z des faces : passer une face en avant ou en arrière par rapport
+  aux autres faces du même plan (devant / derrière).
+
 ## Effectuées
 
+- 2026-08-12 · `0244129` — Découpe d'un plan par un polygone (outil découpe,
+  raccourci D) : on trace à main levée un polygone qui chevauche des faces déjà
+  dessinées et la zone est soustraite, en conservant intactes les faces
+  restantes autour du trou (découpage des faces par la frontière, polygones à
+  trous et entailles triangulés proprement). Clics gauches : sommets (re-clic
+  près du 1er point : fermer et découper) · clic droit ou Entrée : découper ·
+  Retour arrière : retirer le dernier point · Échap : annuler. La découpe se
+  calcule sur une copie (annulable) et ne modifie le plan que si elle touche
+  des faces ; aperçu du tracé au canvas.
 - 2026-08-11 · `1709f7d` — Forme « couronne » : un anneau dont le nombre de
   côtés extérieurs et intérieurs est indépendant (tracé en 3 clics : centre,
   rayon, trou). Après le 2e clic, l'angle du curseur oriente la forme
