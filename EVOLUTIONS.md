@@ -27,6 +27,9 @@ _(aucune évolution en attente — toutes sont livrées)_
 
 ## Effectuées
 
+- 2026-08-11 · `58f302f` — Kiosque : navigation au clavier avec les flèches
+  gauche/droite (le pointeur reste la méthode principale) ; le toast et le
+  message d'activation le rappellent.
 - 2026-08-11 · `61f8810` — Sélection : déplacement au clavier avec les
   flèches — 1 pas de grille par pression (Maj : ×5), une salve de flèches
   rapprochées = une seule étape annulable ; la navigation clavier d'ImGui est
