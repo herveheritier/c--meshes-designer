@@ -17,6 +17,15 @@ namespace {
 
 bool g_quit = false;
 
+// Vrai si un dialogue modal est déjà ouvert : une demande de fermeture est
+// alors ignorée (l'utilisateur est en plein flux, il finit d'abord son action).
+bool anyModalOpen(const App& app) {
+    return app.dlgSaveOpen || app.dlgImportOpen || app.dlgResetOpen ||
+           app.dlgDeletePlaneOpen || app.dlgRotateOpen || app.dlgScaleOpen ||
+           app.dlgPngOpen || app.dlgSvgOpen || app.dlgVersionsOpen ||
+           app.dlgQuitOpen;
+}
+
 const ImVec4 kGreen(0.20f, 0.62f, 0.36f, 1.0f);
 const ImVec4 kAmber(0.95f, 0.63f, 0.20f, 1.0f);
 const ImVec4 kBlue(0.26f, 0.48f, 0.90f, 1.0f);
@@ -1564,10 +1573,12 @@ void saveDialog(App& app) {
         ImGui::SameLine();
         if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
             app.dlgSaveOpen = false;
+            app.quitPending = false;  // sortie différée abandonnée
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             app.dlgSaveOpen = false;
+            app.quitPending = false;  // sortie différée abandonnée
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1849,6 +1860,52 @@ void pngDialog(App& app) {
     }
 }
 
+// Confirmation de sortie : ouverte par requestQuit() quand la scène contient
+// des modifications non enregistrées. Trois issues : Enregistrer (ouvre la
+// fenêtre d'enregistrement, la sortie reprend une fois la scène enregistrée),
+// Quitter quand même, ou Annuler.
+void quitDialog(App& app) {
+    if (!app.dlgQuitOpen) return;
+    ImGui::OpenPopup("Quitter sans enregistrer ?");
+    if (ImGui::BeginPopupModal("Quitter sans enregistrer ?", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("La scène contient des modifications non enregistrées.");
+        ImGui::TextUnformatted("Que voulez-vous faire ?");
+        ImGui::Separator();
+        if (toolBtnIcon("export", "Enregistrer la scène puis quitter (Ctrl+S)", false,
+                        kGreen, false, "Enregistrer", 150.0f)) {
+            app.dlgQuitOpen = false;
+            app.dlgSaveOpen = true;
+            if (app.sceneName.empty()) {
+                if (!app.saveLocations.empty())
+                    std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
+                                  app.saveLocations.front().c_str());
+                else
+                    app.dlgSaveName[0] = '\0';
+            } else {
+                std::snprintf(app.dlgSaveName, sizeof(app.dlgSaveName), "%s",
+                              app.sceneName.c_str());
+            }
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Quitter sans enregistrer", false, kRed, false,
+                        "Quitter quand même", 150.0f)) {
+            g_quit = true;
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Revenir à l'édition", false, kGreen, false,
+                        "Annuler", 150.0f)) {
+            app.dlgQuitOpen = false;
+            app.quitPending = false;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgQuitOpen = false;
+            app.quitPending = false;
+        }
+        ImGui::EndPopup();
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -1893,6 +1950,7 @@ void frame(App& app) {
         helpWindow(app);
         settingsPanel(app);
         kioskVeil(app);
+        quitDialog(app);
         return;
     }
     // Prévisualisation : interface masquée (barre d'outils, panneaux, HUD),
@@ -1900,6 +1958,7 @@ void frame(App& app) {
     if (app.preview != PreviewMode::Off) {
         previewButton(app);
         pngDialog(app);
+        quitDialog(app);
         return;
     }
 
@@ -1918,8 +1977,25 @@ void frame(App& app) {
     pngDialog(app);
     svgDialog(app);
     versionsDialog(app);
+    quitDialog(app);
+
+    // Sortie différée après « Enregistrer puis quitter » : la scène enregistrée
+    // n'est plus modifiée (dirty = false), la fermeture peut avoir lieu.
+    if (app.quitPending && !app.dirty) g_quit = true;
 }
 
 bool quitRequested() { return g_quit; }
+
+void requestQuit(App& app) {
+    // Un dialogue est déjà ouvert (sauvegarde, import…) : on ignore la demande,
+    // l'utilisateur est en plein flux et reviendra à l'édition ensuite.
+    if (anyModalOpen(app)) return;
+    if (!app.dirty) {
+        g_quit = true;  // scène propre : sortie immédiate
+        return;
+    }
+    app.quitPending = true;
+    app.dlgQuitOpen = true;
+}
 
 }  // namespace mesh::ui

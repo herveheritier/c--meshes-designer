@@ -176,6 +176,12 @@ public:
     std::vector<std::string> versionFiles;
     bool dlgVersionsOpen = false;
     bool restoreVersionFile(const std::string& name);
+    // Confirmation de sortie : demandée quand l'utilisateur ferme la fenêtre
+    // avec des modifications non enregistrées (dialogue « Quitter sans
+    // enregistrer ? »). `quitPending` reste vrai tant que la sortie n'est pas
+    // confirmée ; l'application quitte dès que la scène n'est plus modifiée.
+    bool dlgQuitOpen = false;
+    bool quitPending = false;
     bool dlgSaveOpen = false;
     char dlgSaveName[128] = {0};
     bool dlgImportOpen = false;

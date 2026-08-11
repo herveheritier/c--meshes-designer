@@ -136,9 +136,12 @@ int main(int, char**) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             ImGui_ImplSDL2_ProcessEvent(&ev);
-            if (ev.type == SDL_QUIT) running = false;
+            // Fermeture (bouton de fenêtre, Alt+F4…) : si la scène est
+            // modifiée, la confirmation « Quitter sans enregistrer ? » s'ouvre
+            // au lieu de quitter ; la boucle s'arrête quand elle est confirmée.
+            if (ev.type == SDL_QUIT) mesh::ui::requestQuit(app);
             if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_CLOSE)
-                running = false;
+                mesh::ui::requestQuit(app);
             // Glisser-déposer d'un fichier JSON ou OBJ : déclenche l'import
             // (spec 12.2).
             if (ev.type == SDL_DROPFILE) {

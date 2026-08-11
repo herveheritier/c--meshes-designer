@@ -10,7 +10,11 @@ namespace mesh::ui {
 // soumission des fenêtres et le rendu GL du viewport.
 void frame(App& app);
 
-// Vrai si l'utilisateur a demandé de quitter (menu Fichier → Quitter).
+// Vrai si l'utilisateur a demandé de quitter (fermeture confirmée).
 bool quitRequested();
+
+// Demande de fermeture (bouton de fenêtre, Alt+F4…) : quitte immédiatement si
+// la scène est propre ; sinon ouvre la confirmation « Quitter sans enregistrer ? ».
+void requestQuit(App& app);
 
 }  // namespace mesh::ui
