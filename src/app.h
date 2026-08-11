@@ -244,6 +244,9 @@ public:
     void setStatus(const std::string& msg);
     void setToast(const std::string& msg, float secs = 3.0f);
     void logMsg(const std::string& msg);
+    // Aide prospective au survol (spec 13) : rafraîchit le toast avec le geste
+    // possible sous le curseur, sans rafraîchissement continu.
+    void updateHoverHelp(const Vec2& mouseWorld);
     void onEscape();
     void cancelShapeTrace();
     std::vector<int> selectionVertices() const;
@@ -274,6 +277,7 @@ public:
 
 private:
     Drag drag_;
+    std::string lastHoverHelpKey_;   // dernière aide au survol affichée (spec 13)
     float autosaveTimer_ = 0.0f;
     bool rotUndoPushed_ = false;
     float savedZoom_ = -1.0f;   // état de la dernière sauvegarde automatique

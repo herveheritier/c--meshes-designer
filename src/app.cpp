@@ -337,6 +337,9 @@ void App::update(float dt) {
     } else {
         hoverEdge = {-1, -1};
     }
+    // Aide prospective : le toast décrit le geste possible sous le curseur et
+    // guide la phase en cours d'une construction (spec 13).
+    updateHoverHelp(mouseWorld);
 
     // Mise à jour du drag en cours.
     if (drag_.kind != DragKind::None) {
@@ -1925,6 +1928,76 @@ void App::setStatus(const std::string& msg) {
 void App::setToast(const std::string& msg, float secs) {
     toast = msg;
     toastAge = secs;
+}
+
+// ---------------------------------------------------------------------------
+// Aide prospective au survol (spec 13)
+// ---------------------------------------------------------------------------
+// Le toast décrit le geste possible sous le curseur : sommet, arête de
+// triangle, segment ou triangle (modes segment / triangle), pinceau armé,
+// zone vide. Pendant une construction (forme 4.2 ou triangle 4.1), il guide la
+// phase suivante et reste affiché. Il n'est rafraîchi que lorsque le message
+// change ou que le toast a expiré, pour éviter un rafraîchissement continu.
+void App::updateHoverHelp(const Vec2& mouseWorld) {
+    // Construction d'une forme prédéfinie (4.2) : guide la phase suivante.
+    if (drag_.kind == DragKind::Shape) {
+        const char* msg = nullptr;
+        if (drag_.shapeStage == 1) {
+            msg = "1er clic posé — déplacez la souris, puis validez au 2e clic";
+        } else if (drag_.shapeStage >= 2) {
+            msg = (tool == Tool::Star)
+                      ? "Étoile : 2e clic verrouille rayon et orientation — "
+                        "déplacez pour la profondeur, 3e clic valide"
+                      : "Anneau : 2e clic verrouille — déplacez pour la taille du trou, "
+                        "3e clic valide (molette : côtés)";
+        }
+        if (msg) {
+            setToast(msg, 0.5f);  // réaffiché tant que le tracé dure
+        }
+        return;
+    }
+    // Construction de triangle (4.1) : rappelle la phase suivante.
+    if (triP1 >= 0 || triP2 >= 0) {
+        setToast(triP2 < 0
+                     ? "Cliquez pour poser le 2e sommet — le 3e clic ferme le triangle"
+                     : "Cliquez pour poser le 3e sommet — le triangle se ferme",
+                 0.5f);
+        return;
+    }
+    if (drag_.kind != DragKind::None) return;  // déplacement / lasso : pas d'aide
+    if (tool != Tool::Select) return;          // forme armée, tracé pas commencé
+
+    std::string msg;
+    // Pinceau armé : la peinture d'une face a priorité sur le survol.
+    const int face = brushArmed ? pickFace(mouseWorld) : -1;
+    if (face >= 0) {
+        msg = "Clic gauche pour peindre ce triangle…";
+    } else if (selMode == SelMode::Vertex) {
+        if (hoverVertex >= 0) {
+            msg = "Sélectionner ce sommet — clic droit pour le déplacer";
+        } else if (hoverEdge.first >= 0) {
+            msg = "Clic gauche pour créer un nouveau triangle à partir de ce segment";
+        } else {
+            msg = "Zone vide — clic gauche : sélection ou poser un sommet · "
+                  "clic droit : déplacer la sélection";
+        }
+    } else if (selMode == SelMode::Edge) {
+        const Mesh2D::Edge e = pickEdge(mouseWorld, edgePickTol);
+        msg = (e.first >= 0)
+                  ? "Sélectionner ce segment — clic droit pour le déplacer"
+                  : "Zone vide — clic gauche : rectangle de sélection · "
+                    "clic droit : déplacer la sélection";
+    } else {  // Face
+        msg = (pickFace(mouseWorld) >= 0)
+                  ? "Sélectionner ce triangle — clic droit pour le déplacer"
+                  : "Zone vide — clic gauche : rectangle de sélection · "
+                    "clic droit : déplacer la sélection";
+    }
+
+    if (msg != lastHoverHelpKey_ || toastAge <= 0.0f) {
+        lastHoverHelpKey_ = msg;
+        setToast(msg);
+    }
 }
 
 void App::logMsg(const std::string& msg) {
