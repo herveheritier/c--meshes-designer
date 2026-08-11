@@ -464,7 +464,11 @@ void toolbar(App& app) {
     // pas par rapport à la largeur courante de la fenêtre ImGui : avec
     // AlwaysAutoResize, celle-ci n'est connue qu'en fin de frame, ce qui
     // empêchait le repli de se déclencher (tout restait sur une ligne).
-    const float maxW = std::max(260.0f, io.DisplaySize.x - 2.0f * margin);
+    // Largeur de la barre : celle de la fenêtre de l'application (moins les
+    // marges), jamais plus large que la fenêtre elle-même (fenêtres très
+    // étroites), jamais plus étroite qu'un minimum lisible.
+    const float maxW = std::min(
+        std::max(260.0f, io.DisplaySize.x - 2.0f * margin), io.DisplaySize.x);
     ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_Always);
     // Largeur FORCÉE à celle de la fenêtre (min = max) : la barre remplit
     // toute la largeur quelle que soit la ligne la plus large. Le repli est
@@ -506,6 +510,8 @@ void toolbar(App& app) {
     // donc TOUJOURS au début de ligne. On tient notre propre comptabilité, et
     // le repli est calculé sur les largeurs réelles des paquets (packW), qui
     // correspondent exactement au rendu (toolBtnWidth / pillWidth partagés).
+    // Un paquet passe TOUJOURS EN ENTIER à la ligne suivante : aucun bouton
+    // d'un paquet ne peut se retrouver séparé du reste de son paquet.
     float lineX = 0.0f;
     auto placePack = [&](float w) {
         if (lineX == 0.0f) {
@@ -516,11 +522,12 @@ void toolbar(App& app) {
             groupSep();
             lineX += groupSepW + w;
         } else {
-            // Repli : NewLine() (le curseur X est déjà au début de ligne après
-            // ItemSize) ; on le replaçe explicitement par sécurité au cas où un
-            // paquet se terminerait un jour par un SameLine() en trop.
-            ImGui::NewLine();
-            ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x);
+            // Repli : AUCUN déplacement de curseur n'est nécessaire — après le
+            // dernier item du paquet précédent, ImGui (ItemSize) a déjà placé
+            // le curseur en tête de la ligne suivante (X au début, Y sur la
+            // ligne d'après). Un NewLine() ajouterait une hauteur de ligne
+            // supplémentaire (~20 px d'espace mort entre les lignes) : les
+            // lignes sont donc naturellement serrées.
             lineX = w;
         }
     };

@@ -35,8 +35,11 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 - 2026-08-11 · correctif du repli : la largeur de ligne se mesure avec une
   comptabilité propre (GetCursorPosX() renvoie toujours le début de ligne
   après un item ImGui, le repli ne se déclenchait donc jamais) ; largeur de
-  la barre forcée à celle de la fenêtre (remplit toute la largeur) ; 3 lignes
-  à 1560 px, 6 lignes à 700 px, tout bouton toujours visible.
+  la barre forcée à celle de la fenêtre (remplit toute la largeur) ; les
+  paquets passent TOUJOURS en entier à la ligne suivante (jamais coupés au
+  milieu) ; lignes serrées (plus de NewLine() en trop : ~20 px d'espace mort
+  supprimés entre les lignes) ; 2 lignes à 1560 px, 4 lignes à 700 px, tout
+  bouton toujours visible.
 - 2026-08-11 · `e8e0e03` — Correctifs : en prévisualisation, plus aucun
   raccourci ne modifie la géométrie (seuls zoom, cadrage et sortie restent
   actifs, spec 9.3) ; la duplication d'un plan reprend le nom par défaut ;
