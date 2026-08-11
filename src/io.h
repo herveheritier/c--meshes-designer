@@ -21,6 +21,14 @@ IoResult loadNative(Mesh2D& m, const std::string& path);
 // Export OBJ (sommets 2D, z=0 ; faces 1-based).
 IoResult exportOBJ(const Mesh2D& m, const std::string& path);
 
+// Import OBJ : sommets `v x y [z]` (z ignoré), faces `f` avec indices 1-based
+// (formes `a`, `a/b`, `a//b`, `a/b/c` supportées ; indices négatifs acceptés).
+IoResult loadObj(Mesh2D& m, const std::string& path);
+
+// Export SVG vectoriel d'un plan : un polygone par face, avec la couleur de
+// remplissage quand elle existe. Y monde vers le haut → Y SVG inversé.
+IoResult exportPlaneSVG(const Mesh2D& m, const std::string& path);
+
 // Export texte simple, pensé pour une lecture aisée depuis QB64 (INPUT #).
 IoResult exportQB64(const Mesh2D& m, const std::string& path);
 
@@ -66,6 +74,8 @@ struct PrefsData {
     std::vector<std::string> locations;   // emplacements d'enregistrement (20 max)
     int importMode = 0;                   // 0 = remplacer, 1 = fusionner
     bool allColors = false;               // mode « toutes couleurs » conservé (7.6)
+    bool snapOn = true;                   // aimantation sur la grille (indépendante de l'affichage)
+    std::vector<std::string> versions;    // noms des versions horodatées de l'autosave (10 max)
     bool consoleVisible = false;
     float consoleX = 0.0f, consoleY = 0.0f;
     float consoleW = 520.0f, consoleH = 220.0f;

@@ -498,18 +498,21 @@ Deux formats sont pris en charge :
 
 - **JSON** : format complet de la scène (plans, points, triangles, couleurs, plan actif, grille, zoom, vue). L'enregistrement et le chargement sont **exacts** (aller-retour sans perte).
 - **« meshes »** (texte) : format simple **une ligne = un plan** : les coordonnées des sommets séparées par des points-virgules, X et Y séparés par des virgules (ex. `0,0;10,0;5,8`). Chaque **triplet de sommets consécutifs forme un triangle**. Les coordonnées identiques sont dédupliquées. Un reliquat de 1 ou 2 sommets en fin de ligne forme un triangle partiel, **filtré à l'import** (non chargé).
+- **OBJ** (import) : les sommets `v x y [z]` et les faces `f` (indices 1-based, formes `a`, `a/b`, `a//b`, `a/b/c` ; polygones de plus de 3 sommets acceptés). La coordonnée z est ignorée (maillage 2D).
+- **SVG** (export du plan actif) : un polygone par face, avec la couleur de remplissage quand elle existe, dans une vue ajustée à la boîte englobante du plan.
 
 ### 12.2 Chargement
 
-Deux boutons bleus : **Charger meshes** (format texte) et **Charger JSON**.
+Trois boutons bleus : **Charger meshes** (format texte), **Charger JSON** et
+**Charger OBJ**.
 Après choix du fichier, une fenêtre propose deux modes :
 
 - **Remplacer** (par défaut) : la scène courante est remplacée.
 - **Fusionner** : les plans importés sont **ajoutés** aux plans existants (pour assembler des pièces).
 
-Le dernier mode choisi est mémorisé. **Glisser-déposer** d'un fichier JSON sur la
-zone de dessin déclenche aussi l'import. Les erreurs de structure ou d'indices
-sont signalées **avant** toute modification de la scène.
+Le dernier mode choisi est mémorisé. **Glisser-déposer** d'un fichier JSON ou
+OBJ sur la zone de dessin déclenche aussi l'import. Les erreurs de structure ou
+d'indices sont signalées **avant** toute modification de la scène.
 
 ---
 
@@ -566,10 +569,16 @@ dans une fenêtre flottante :
 | `F` | Afficher / masquer le compteur de redessins (HUD) |
 | `P` | Prévisualiser : cycle aperçu simple → plans → édition |
 | `Accueil` | Tout afficher : zoom automatique sur la scène entière |
+| `Ctrl+F` | Cadrer la sélection : zoom automatique sur la sélection courante |
 | `Ctrl+D` | Dupliquer la sélection (copie décalée, prête à déplacer) |
 | `Ctrl+A` / `Ctrl+I` | Tout sélectionner / inverser la sélection |
+| `M` / `Maj+M` | Miroir X / Y de la sélection (autour du 1er point choisi) |
 | `Alt+K` | Kiosque de sélection des plans |
 | `Alt+R` | Rotation précise : saisir un angle exact (pivot = centre de la sélection) |
+| `Alt+S` | Mise à l'échelle précise : saisir un facteur (pivot = centre de la sélection) |
+| `Ctrl+M` | Outil mesure : distance entre deux points (affichée au HUD) |
+| `Alt+D` | Dupliquer le plan actif (copie complète insérée juste au-dessus) |
+| `Maj+G` | Aimanter sur la grille sans son affichage (ou l'inverse) |
 | `C` / `R` / `T` | Formes : cercle / rectangle / triangle |
 | `Q` / `N` / `H` | Formes : carré / pentagone / hexagone |
 | `É` (`E`) / `A` | Formes : étoile / anneau |
@@ -594,7 +603,7 @@ dans une fenêtre flottante :
 | AltGr + molette | Rotation de chaque plan autour du curseur |
 | Clic du milieu + glisser | Déplacer la vue (pan) |
 | AltGr + clic droit + glisser | Déplacer tous les plans ensemble |
-| Molette sur un bouton actif | Réglage contextuel (pas de grille, côtés du cercle, rayon de fusion) |
+| Molette sur un bouton actif | Réglage contextuel (pas de grille, côtés du cercle/anneau, pointes de l'étoile, rayon de fusion) |
 | Clic du milieu sur le bouton Grille | Réinitialiser le pas de la grille |
 
 ---

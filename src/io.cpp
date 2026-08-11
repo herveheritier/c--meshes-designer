@@ -451,6 +451,84 @@ IoResult exportOBJ(const Mesh2D& m, const std::string& path) {
     return r;
 }
 
+IoResult loadObj(Mesh2D& m, const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return {false, "Impossible d'ouvrir le fichier : " + path};
+    Mesh2D out;
+    std::string line;
+    int lineNo = 0;
+    while (std::getline(f, line)) {
+        ++lineNo;
+        std::istringstream ls(line);
+        std::string kw;
+        ls >> kw;
+        if (kw == "v") {
+            float x = 0.0f, y = 0.0f;
+            if (!(ls >> x >> y)) continue;  // z et w facultatifs, ignorés (maillage 2D)
+            out.addVertex({x, y});
+        } else if (kw == "f") {
+            std::vector<int> loop;
+            std::string tok;
+            while (ls >> tok) {
+                // Formes acceptées : a | a/b | a//b | a/b/c — on ne garde que
+                // l'indice de sommet (les indices vt/vn sont ignorés).
+                int idx = 0;
+                if (std::sscanf(tok.c_str(), "%d", &idx) != 1 || idx == 0) continue;
+                loop.push_back(idx > 0 ? idx - 1 : (int)out.vertices.size() + idx);
+            }
+            if ((int)loop.size() < 3) continue;
+            out.addFace(loop);  // polygones > 3 sommets acceptés ; invalides ignorés
+        }
+        // vt, vn, usemtl, o, g, s, mtllib… : ignorés.
+    }
+    if (out.vertices.empty())
+        return {false, "Aucun sommet trouvé dans le fichier OBJ (ligne " +
+                           std::to_string(lineNo) + ")"};
+    m = std::move(out);
+    return {true, ""};
+}
+
+IoResult exportPlaneSVG(const Mesh2D& m, const std::string& path) {
+    if (m.vertices.empty()) return {false, "Le plan actif est vide"};
+    Vec2 mn = m.vertices[0], mx = m.vertices[0];
+    for (const Vec2& v : m.vertices) {
+        mn.x = std::min(mn.x, v.x);
+        mn.y = std::min(mn.y, v.y);
+        mx.x = std::max(mx.x, v.x);
+        mx.y = std::max(mx.y, v.y);
+    }
+    const float pad = std::max(mx.x - mn.x, mx.y - mn.y) * 0.03f + 0.1f;
+    std::ostringstream s;
+    s << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    // Le monde a Y vers le haut, le SVG Y vers le bas : on inverse simplement y
+    // (aucune transformation, la vue est définie sur la boîte englobante).
+    s << "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"";
+    s << (mn.x - pad) << " " << -(mx.y + pad) << " " << (mx.x - mn.x + 2.0f * pad)
+      << " " << (mx.y - mn.y + 2.0f * pad) << "\">\n";
+    for (const Face& f : m.faces) {
+        if ((int)f.verts.size() < 3) continue;
+        s << "<polygon points=\"";
+        for (int v : f.verts) {
+            const float px = m.vertices[v].x;
+            const float py = m.vertices[v].y == 0.0f ? 0.0f : -m.vertices[v].y;
+            s << px << "," << py << " ";
+        }
+        s << "\"";
+        if (f.hasColor) {
+            s << " fill=\"rgba(" << (int)(f.color.r * 255.0f) << ","
+              << (int)(f.color.g * 255.0f) << "," << (int)(f.color.b * 255.0f)
+              << "," << f.color.a << ")\"";
+        } else {
+            s << " fill=\"none\" stroke=\"#c7d2e6\" stroke-width=\"0.03\"";
+        }
+        s << "/>\n";
+    }
+    s << "</svg>\n";
+    IoResult r;
+    r.ok = writeText(path, s.str(), r.error);
+    return r;
+}
+
 IoResult exportQB64(const Mesh2D& m, const std::string& path) {
     std::vector<int> tris;
     m.triangulated(tris);
@@ -667,6 +745,10 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     v.obj.emplace_back("locations", loc);
     v.obj.emplace_back("importMode", JVal::num(p.importMode));
     v.obj.emplace_back("allColors", JVal::boolean(p.allColors));
+    v.obj.emplace_back("snapOn", JVal::boolean(p.snapOn));
+    JVal ver = JVal::array();
+    for (const auto& s : p.versions) ver.arr.push_back(JVal::str(s));
+    v.obj.emplace_back("versions", ver);
     JVal con = JVal::object();
     con.obj.emplace_back("visible", JVal::boolean(p.consoleVisible));
     con.obj.emplace_back("x", JVal::num(p.consoleX));
@@ -698,6 +780,14 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
     if (root.getNum("importMode", d)) out.importMode = (int)d;
     bool ac = out.allColors;
     if (root.getBool("allColors", ac)) out.allColors = ac;
+    bool sn = out.snapOn;
+    if (root.getBool("snapOn", sn)) out.snapOn = sn;
+    const JVal* ver = root.find("versions");
+    if (ver && ver->t == JVal::T::Arr) {
+        out.versions.clear();
+        for (const JVal& s : ver->arr)
+            if (s.t == JVal::T::Str) out.versions.push_back(s.s);
+    }
     const JVal* pal = root.find("palette");
     if (pal && pal->t == JVal::T::Arr && !pal->arr.empty()) {
         out.palette.clear();

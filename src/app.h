@@ -75,7 +75,8 @@ public:
     int triP2 = -1;
 
     // --- Grille & réticule ---
-    bool gridOn = true;                 // affichage + aimantation
+    bool gridOn = true;                 // affichage de la grille
+    bool snapOn = true;                 // aimantation (indépendante de l'affichage)
     float gridStep = 1.0f;
     ReticleState reticle = ReticleState::Simple;  // croix de visée par défaut (3.4)
 
@@ -93,7 +94,14 @@ public:
     float kioskBtnMaxX = 0.0f, kioskBtnMaxY = 0.0f;
 
     // --- Formes prédéfinies ---
-    int circleSides = 16;               // côtés du cercle/anneau (molette, mémorisé)
+    int circleSides = 16;               // côtés du cercle/anneau/étoile (molette, mémorisé)
+
+    // --- Outil mesure ---
+    bool measureActive = false;
+    bool measureHasA = false;           // 1er point posé
+    bool measureHasB = false;           // 2e point posé (segment complet)
+    Vec2 measureA{0, 0};
+    Vec2 measureB{0, 0};
 
     // --- Fusion de points (5.5 / 5.6) ---
     enum class MergeMode { Off, Armed, Locked };
@@ -165,6 +173,10 @@ public:
 
     // --- Emplacements d'enregistrement (11.2) ---
     std::vector<std::string> saveLocations;  // 20 max, du plus récent au plus ancien
+    // Versions horodatées de l'autosave (noms de fichiers, 10 max).
+    std::vector<std::string> versionFiles;
+    bool dlgVersionsOpen = false;
+    bool restoreVersionFile(const std::string& name);
     bool dlgSaveOpen = false;
     char dlgSaveName[128] = {0};
     bool dlgImportOpen = false;
@@ -175,8 +187,12 @@ public:
     bool dlgHelpOpen = false;
     bool dlgRotateOpen = false;           // rotation précise (saisie d'angle)
     float rotateDeg = 90.0f;              // angle par défaut du dialogue
+    bool dlgScaleOpen = false;            // mise à l'échelle précise (saisie d'un facteur)
+    float scaleFactor = 2.0f;             // facteur par défaut du dialogue
     bool dlgPngOpen = false;              // export d'image (PNG)
     char dlgPngPath[1024] = {0};
+    bool dlgSvgOpen = false;              // export SVG du plan actif
+    char dlgSvgPath[1024] = {0};
 
     // --- Export d'image (PNG depuis la prévisualisation) ---
     bool exportPngRequested = false;
@@ -206,6 +222,19 @@ public:
     void redo();
     void deleteSelection();
     void createFaceFromSelection();
+    // Miroir de la sélection autour du premier point sélectionné (ancre).
+    void mirrorSelectionX();
+    void mirrorSelectionY();
+    // Mise à l'échelle de la sélection (facteur > 0, ≠ 1), pivot = centre.
+    void scaleSelectionExact(float factor);
+    // Cadrage de la vue sur la sélection courante (zoom automatique).
+    void frameSelection();
+    // Copie complète du plan actif, insérée juste au-dessus et sélectionnée.
+    void duplicatePlane();
+    // Bascule de l'outil mesure (2 clics = distance affichée au HUD).
+    void toggleMeasure();
+    // Aire totale (somme des aires des faces) du plan actif, en unités monde.
+    float activePlaneArea() const;
     void insertVertexAt(const Mesh2D::Edge& e, const Vec2& world);
     void resetScene();
     void selectAll();
@@ -255,7 +284,9 @@ public:
     bool saveToLocation(const std::string& name);
     bool importJson(const std::string& path, bool replace);
     bool importMeshes(const std::string& path, bool replace);
+    bool importObj(const std::string& path, bool replace);
     bool exportMeshesTo(const std::string& path);
+    bool exportSvgTo(const std::string& path);
     void openImportDialog(int fmt, const std::string& path = "");
 
     // --- Divers ---
@@ -297,6 +328,11 @@ private:
     Drag drag_;
     std::string lastHoverHelpKey_;   // dernière aide au survol affichée (spec 13)
     float autosaveTimer_ = 0.0f;
+    std::string versionTimestamp() const;   // « AAAA-MM-JJ_HHMMSS » pour les versions
+    void pruneVersions();                   // conserve 10 versions max, supprime les fichiers
+    // Scène à l'origine de la dernière version horodatée : une nouvelle version
+    // n'est créée que si la géométrie a changé (pas de churn à chaque autosave).
+    Scene lastVersionedScene_;
     bool rotUndoPushed_ = false;
     float savedZoom_ = -1.0f;   // état de la dernière sauvegarde automatique
     float savedCx_ = 0.0f;
@@ -317,6 +353,7 @@ private:
     Vec2 snapDelta(Vec2 d) const;
     void drawGrid();
     void drawMeshGeometry();
+    void drawMeasureVisual();
     void drawDragPreview();
     void drawShapeOutline();
     void drawMergeVisuals();

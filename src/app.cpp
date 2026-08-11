@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <fstream>
 
 namespace mesh {
 
@@ -298,7 +299,8 @@ void App::update(float dt) {
                 rotUndoPushed_ = true;
             }
             rotateAllPlanesAround(mouseWorld, 5.0f * io.MouseWheel);
-        } else if (isShapeTool(tool) && (tool == Tool::Circle || tool == Tool::Ring)) {
+        } else if (isShapeTool(tool) &&
+                   (tool == Tool::Circle || tool == Tool::Ring || tool == Tool::Star)) {
             circleSides = std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
         } else if (drag_.kind == DragKind::None && tool == Tool::Select &&
                    selectionVertices().size() >= 2) {
@@ -376,6 +378,10 @@ void App::update(float dt) {
 
     // --- Clic droit : sélection / déplacement de la sélection ---
     if (io.MouseClicked[1]) {
+        if (measureActive) {
+            toggleMeasure();  // clic droit : désarme l'outil mesure
+            return;
+        }
         if (drag_.kind == DragKind::Shape) {
             cancelShapeTrace();  // annule le tracé en cours (4.2)
         } else if (altGrDown()) {
@@ -451,6 +457,29 @@ void App::update(float dt) {
 
     // --- Clic gauche ---
     if (io.MouseClicked[0]) {
+        // Outil mesure : les clics posent le 1er puis le 2e point (outil
+        // Sélection uniquement — une forme armée garde la priorité).
+        if (measureActive && tool == Tool::Select && drag_.kind == DragKind::None) {
+            const Vec2 w = snappedPoint(mouseWorld);
+            if (!measureHasA) {
+                measureA = w;
+                measureB = measureA;
+                measureHasA = true;
+                measureHasB = false;
+                setStatus("Mesure : 1er point posé — 2e clic : distance · "
+                          "clic droit ou Échap pour désarmer");
+            } else {
+                measureB = w;
+                measureHasA = false;
+                measureHasB = true;
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Distance : %.2f unités",
+                              distance(measureA, measureB));
+                setStatus(buf);
+                logMsg(buf);
+            }
+            return;
+        }
         if (isShapeTool(tool)) {
             if (drag_.kind == DragKind::None) {
                 // 1er clic : pose l'ancre, la forme suit la souris jusqu'au 2e clic.
@@ -504,6 +533,7 @@ void App::drawScene() {
     } else {
         drawMeshGeometry();
         drawMergeVisuals();
+        drawMeasureVisual();
         drawDragPreview();
     }
     // Export d'image : la demande (posée par l'interface) est honorée dès que
@@ -777,7 +807,7 @@ void App::beginMoveAllDrag(const Vec2& world) {
 
 void App::applyMoveAll(const Vec2& world) {
     Vec2 delta = world - drag_.grabWorld;
-    if (gridOn) delta = snapDelta(delta);
+    if (snapOn) delta = snapDelta(delta);
     for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
         const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
         Mesh2D& p = scene.planes[i];
@@ -839,7 +869,7 @@ void App::endMoveDrag(const Vec2& world) {
 
 void App::applyMove(const Vec2& world) {
     Vec2 delta = world - drag_.grabWorld;
-    if (gridOn) delta = snapDelta(delta);
+    if (snapOn) delta = snapDelta(delta);
     const size_t n = scene.activePlane().vertices.size();
     for (size_t i = 0; i < drag_.movingVerts.size(); ++i) {
         const int v = drag_.movingVerts[i];
@@ -1319,6 +1349,67 @@ void App::distributeY() {
     setStatus("Répartir Y (" + std::to_string(sorted.size()) + " points)");
 }
 
+// Miroir de la sélection autour du premier point sélectionné (l'ancre), comme
+// pour Aligner X/Y : le point d'ancre reste en place, les autres se reflètent.
+void App::mirrorSelectionX() {
+    toVertexSelection();
+    if (selVerts.size() < 2) {
+        setStatus("Miroir X : sélectionnez au moins 2 sommets (M)");
+        return;
+    }
+    pushUndo();
+    const float ax = scene.activePlane().vertices[selVerts[0]].x;
+    for (size_t i = 1; i < selVerts.size(); ++i) {
+        Vec2& p = scene.activePlane().vertices[selVerts[i]];
+        p.x = 2.0f * ax - p.x;
+    }
+    setStatus("Miroir X (" + std::to_string(selVerts.size()) + " points)");
+    logMsg("Miroir X : " + std::to_string(selVerts.size()) + " points");
+}
+
+void App::mirrorSelectionY() {
+    toVertexSelection();
+    if (selVerts.size() < 2) {
+        setStatus("Miroir Y : sélectionnez au moins 2 sommets (Maj+M)");
+        return;
+    }
+    pushUndo();
+    const float ay = scene.activePlane().vertices[selVerts[0]].y;
+    for (size_t i = 1; i < selVerts.size(); ++i) {
+        Vec2& p = scene.activePlane().vertices[selVerts[i]];
+        p.y = 2.0f * ay - p.y;
+    }
+    setStatus("Miroir Y (" + std::to_string(selVerts.size()) + " points)");
+    logMsg("Miroir Y : " + std::to_string(selVerts.size()) + " points");
+}
+
+// Mise à l'échelle de la sélection : facteur appliqué depuis le centre de la
+// sélection (comme la rotation précise).
+void App::scaleSelectionExact(float factor) {
+    const std::vector<int> verts = selectionVertices();
+    if (verts.size() < 2) {
+        setStatus("Mise à l'échelle : sélectionnez au moins 2 sommets");
+        return;
+    }
+    if (factor <= 0.0f || std::fabs(factor - 1.0f) < 1e-4f) {
+        setStatus("Mise à l'échelle : facteur invalide (positif et différent de 1)");
+        return;
+    }
+    pushUndo();
+    Vec2 c{0.0f, 0.0f};
+    for (int v : verts) c = c + scene.activePlane().vertices[v];
+    c = c / (float)verts.size();
+    for (int v : verts) {
+        Vec2& p = scene.activePlane().vertices[v];
+        p = c + (p - c) * factor;
+    }
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "Sélection mise à l'échelle ×%.2f (pivot : centre)", factor);
+    setStatus(buf);
+    std::snprintf(buf, sizeof(buf), "Mise à l'échelle ×%.2f", factor);
+    logMsg(buf);
+}
+
 void App::rotateSelectionAround(const Vec2& pivot, float deg) {
     rotDeg += deg;  // angle cumulé affiché au HUD (rot X°)
     const float rad = deg * kPi / 180.0f;
@@ -1494,6 +1585,35 @@ void App::cyclePreview() {
     }
 }
 
+void App::toggleMeasure() {
+    measureActive = !measureActive;
+    if (measureActive) {
+        measureHasA = measureHasB = false;
+        setStatus("Outil mesure armé — clic gauche : 1er point, 2e clic : distance "
+                  "(Ctrl+M pour désarmer)");
+        logMsg("Outil mesure armé");
+    } else {
+        setStatus("Outil mesure désarmé");
+        logMsg("Outil mesure désarmé");
+    }
+}
+
+float App::activePlaneArea() const {
+    const Mesh2D& m = scene.activePlane();
+    float area = 0.0f;
+    for (const Face& f : m.faces) {
+        if ((int)f.verts.size() < 3) continue;
+        float s = 0.0f;
+        for (size_t i = 0; i < f.verts.size(); ++i) {
+            const Vec2& a = m.vertices[f.verts[i]];
+            const Vec2& b = m.vertices[f.verts[(i + 1) % f.verts.size()]];
+            s += a.x * b.y - b.x * a.y;
+        }
+        area += std::fabs(s) * 0.5f;
+    }
+    return area;
+}
+
 void App::exitPreview() {
     if (preview != PreviewMode::Off) {
         preview = PreviewMode::Off;
@@ -1554,6 +1674,19 @@ void App::addPlane(bool after) {
     setStatus("Plan vide ajouté " + std::string(after ? "après" : "avant") +
               " (n° " + std::to_string(at + 1) + "/" + std::to_string(scene.count()) + ")");
     logMsg("Plan vide ajouté " + std::string(after ? "après" : "avant") + " le plan courant");
+}
+
+void App::duplicatePlane() {
+    if (scene.planes.empty()) return;
+    pushUndo();
+    const int at = scene.active + 1;
+    scene.planes.insert(scene.planes.begin() + at, scene.planes[scene.active]);
+    scene.active = at;
+    clearSelection();
+    triP1 = triP2 = -1;
+    setStatus("Plan dupliqué (n° " + std::to_string(at + 1) + "/" +
+              std::to_string(scene.count()) + ") — Ctrl+Z pour annuler");
+    logMsg("Plan dupliqué (n° " + std::to_string(at + 1) + ")");
 }
 
 void App::deletePlane() {
@@ -1787,6 +1920,10 @@ void App::onEscape() {
         setStatus("Fusion par déplacement désarmée");
         return;
     }
+    if (measureActive) {
+        toggleMeasure();  // Échap désarme aussi l'outil mesure
+        return;
+    }
     if (preview != PreviewMode::Off) exitPreview();
 }
 
@@ -1794,7 +1931,7 @@ void App::onEscape() {
 // Aimantation
 // ---------------------------------------------------------------------------
 Vec2 App::snappedPoint(const Vec2& w) const {
-    if (!gridOn) return w;
+    if (!snapOn) return w;
     return {std::round(w.x / gridStep) * gridStep, std::round(w.y / gridStep) * gridStep};
 }
 
@@ -1926,6 +2063,64 @@ bool App::exportMeshesTo(const std::string& path) {
     return true;
 }
 
+bool App::exportSvgTo(const std::string& path) {
+    if (path.empty()) {
+        setStatus("Export SVG : nom de fichier vide");
+        return false;
+    }
+    const IoResult r = exportPlaneSVG(scene.activePlane(), path);
+    if (!r.ok) {
+        setStatus(r.error);
+        logMsg("Erreur d'export SVG : " + r.error);
+        return false;
+    }
+    setStatus("Plan exporté en SVG : " + path);
+    logMsg("Export SVG du plan actif : " + path);
+    dlgSvgOpen = false;
+    return true;
+}
+
+bool App::importObj(const std::string& path, bool replace) {
+    Mesh2D m;
+    const IoResult r = loadObj(m, path);
+    if (!r.ok) {
+        setStatus(r.error);
+        logMsg("Import OBJ échoué : " + r.error);
+        return false;
+    }
+    if (replace) {
+        scene.clear();
+        scene.planes[0] = std::move(m);
+        clearSelection();
+        triP1 = triP2 = -1;
+        undoStack.clear();
+        redoStack.clear();
+        dirty = false;
+        cameraFramed = false;
+        setStatus("Scène remplacée depuis « " + path + " » (" +
+                  std::to_string(scene.planes[0].faces.size()) + " face(s))");
+    } else {
+        pushUndo();
+        // Fusion dans le plan actif : sommets ajoutés, faces ré-indexées.
+        const int base = (int)scene.activePlane().vertices.size();
+        for (const Vec2& v : m.vertices) scene.activePlane().addVertex(v);
+        int added = 0;
+        for (const Face& f : m.faces) {
+            if ((int)f.verts.size() < 3) continue;
+            std::vector<int> loop;
+            loop.reserve(f.verts.size());
+            for (int iv : f.verts) loop.push_back(base + iv);
+            if (scene.activePlane().addFace(loop) >= 0) ++added;
+        }
+        dirty = true;
+        setStatus("OBJ fusionné avec le plan actif (" + std::to_string(added) +
+                  " face(s) ajoutée(s))");
+    }
+    logMsg("Import OBJ : " + path + (replace ? " (remplacer)" : " (fusionner)"));
+    dlgImportOpen = false;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Préférences & autosave
 // ---------------------------------------------------------------------------
@@ -1946,6 +2141,8 @@ void App::savePrefsFile() {
     p.locations = saveLocations;
     p.importMode = dlgImportReplace ? 0 : 1;
     p.allColors = allColors;
+    p.snapOn = snapOn;
+    p.versions = versionFiles;
     p.consoleVisible = consoleVisible;
     p.consoleX = consolePos.x;
     p.consoleY = consolePos.y;
@@ -1974,6 +2171,58 @@ void App::loadPrefsFile() {
     consolePos = {p.consoleX, p.consoleY};
     consoleSize = {p.consoleW, p.consoleH};
     allColors = p.allColors;
+    snapOn = p.snapOn;
+    versionFiles = p.versions;
+    if (versionFiles.size() > 10) versionFiles.resize(10);
+}
+
+// Égalité géométrique (sommets + faces + couleurs) entre deux plans puis deux
+// scènes — utilisée pour ne créer une version horodatée que si l'état a changé.
+namespace {
+bool sameGeometry(const Mesh2D& a, const Mesh2D& b) {
+    if (a.vertices.size() != b.vertices.size() || a.faces.size() != b.faces.size())
+        return false;
+    for (size_t i = 0; i < a.vertices.size(); ++i)
+        if (a.vertices[i].x != b.vertices[i].x || a.vertices[i].y != b.vertices[i].y)
+            return false;
+    for (size_t i = 0; i < a.faces.size(); ++i) {
+        const Face& fa = a.faces[i];
+        const Face& fb = b.faces[i];
+        if (fa.verts != fb.verts || fa.hasColor != fb.hasColor) return false;
+        if (fa.hasColor &&
+            (fa.color.r != fb.color.r || fa.color.g != fb.color.g ||
+             fa.color.b != fb.color.b || fa.color.a != fb.color.a))
+            return false;
+    }
+    return true;
+}
+bool sameScene(const Scene& a, const Scene& b) {
+    if (a.planes.size() != b.planes.size()) return false;
+    for (size_t i = 0; i < a.planes.size(); ++i)
+        if (!sameGeometry(a.planes[i], b.planes[i])) return false;
+    return true;
+}
+}  // namespace
+
+std::string App::versionTimestamp() const {
+    const std::time_t now = std::time(nullptr);
+    std::tm tmv;
+#ifdef _WIN32
+    localtime_s(&tmv, &now);
+#else
+    localtime_r(&now, &tmv);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tmv);
+    return buf;
+}
+
+void App::pruneVersions() {
+    while (versionFiles.size() > 10) {
+        const std::string old = versionFiles.back();
+        versionFiles.pop_back();
+        std::remove((prefsDir() + old).c_str());
+    }
 }
 
 void App::saveAutoFile() {
@@ -1986,11 +2235,65 @@ void App::saveAutoFile() {
     snap.gridStep = gridStep;
     snap.name = sceneName;
     saveAutoJson(snap, undoStack, redoStack, prefsDir() + "autosave.json");
+    // Version horodatée de l'autosave (10 conservées, du plus récent au plus
+    // ancien) : permet de revenir à un état antérieur. Une nouvelle version
+    // n'est créée que si la géométrie a changé depuis la précédente, et les
+    // préférences ne sont réécrites que dans ce cas (pas de churn à 5 s).
+    if (versionFiles.empty() || !sameScene(lastVersionedScene_, scene)) {
+        lastVersionedScene_ = scene;
+        const std::string name = "autosave-" + versionTimestamp() + ".json";
+        std::ifstream src(prefsDir() + "autosave.json", std::ios::binary);
+        if (src) {
+            std::ofstream dst(prefsDir() + name, std::ios::binary | std::ios::trunc);
+            if (dst) {
+                dst << src.rdbuf();
+                versionFiles.erase(std::remove(versionFiles.begin(), versionFiles.end(), name),
+                                   versionFiles.end());
+                versionFiles.insert(versionFiles.begin(), name);
+                pruneVersions();
+                savePrefsFile();
+            }
+        }
+    }
     savedZoom_ = camera.zoom;
     savedCx_ = camera.cx;
     savedCy_ = camera.cy;
     savedGrid_ = gridOn;
     savedGridStep_ = gridStep;
+}
+
+bool App::restoreVersionFile(const std::string& name) {
+    SceneSnapshot snap;
+    std::vector<Scene> undo, redo;
+    const IoResult r = loadAutoJson(snap, undo, redo, prefsDir() + name);
+    if (!r.ok) {
+        setStatus("Restauration impossible : " + r.error);
+        logMsg("Restauration échouée : " + name);
+        return false;
+    }
+    const Scene prev = scene;  // l'état courant, restauré par Ctrl+Z ensuite
+    scene = std::move(snap.scene);
+    camera.zoom = std::clamp(snap.zoomMult * kBasePxPerUnit, kMinZoomPx, kMaxZoomPx);
+    camera.cx = snap.cx;
+    camera.cy = snap.cy;
+    gridOn = snap.grid;
+    gridStep = snap.gridStep;
+    sceneName = snap.name;
+    // L'état d'avant la restauration reste annulable (Ctrl+Z) : il est ajouté
+    // À LA FIN de l'historique chargé avec la version (le plus récent).
+    if (undo.size() >= kMaxUndo) undo.resize(kMaxUndo - 1);
+    if (redo.size() > kMaxUndo) redo.resize(kMaxUndo);
+    undo.push_back(prev);
+    undoStack = std::move(undo);
+    redoStack = std::move(redo);
+    clearSelection();
+    triP1 = triP2 = -1;
+    dirty = false;
+    lastVersionedScene_ = scene;
+    dlgVersionsOpen = false;
+    setStatus("Version restaurée : " + name + " — Ctrl+Z pour revenir");
+    logMsg("Version restaurée : " + name);
+    return true;
 }
 
 void App::loadAutoFile() {
@@ -2009,6 +2312,7 @@ void App::loadAutoFile() {
     if (redo.size() > kMaxUndo) redo.resize(kMaxUndo);
     undoStack = std::move(undo);
     redoStack = std::move(redo);
+    lastVersionedScene_ = scene;
     logMsg("Session précédente restaurée");
 }
 
@@ -2108,6 +2412,35 @@ void App::logMsg(const std::string& msg) {
     std::strftime(buf, sizeof(buf), "[%H:%M:%S]", &tmv);
     consoleLog.push_back(std::string(buf) + " " + msg);
     if (consoleLog.size() > 300) consoleLog.erase(consoleLog.begin());
+}
+
+void App::frameSelection() {
+    // Cadrage sur la sélection courante (tous les modes), repli sur la scène.
+    const std::vector<int> verts = selectionVertices();
+    const Mesh2D& m = scene.activePlane();
+    bool first = true;
+    Vec2 minv{0.0f, 0.0f}, maxv{0.0f, 0.0f};
+    for (int v : verts) {
+        if (v < 0 || (size_t)v >= m.vertices.size()) continue;
+        const Vec2& p = m.vertices[v];
+        if (first) {
+            minv = maxv = p;
+            first = false;
+        } else {
+            minv.x = std::min(minv.x, p.x);
+            minv.y = std::min(minv.y, p.y);
+            maxv.x = std::max(maxv.x, p.x);
+            maxv.y = std::max(maxv.y, p.y);
+        }
+    }
+    if (first) {
+        frameView();
+        return;
+    }
+    const Vec2 center = (minv + maxv) * 0.5f;
+    const float extent = std::max(maxv.x - minv.x, maxv.y - minv.y) * 0.5f + 0.5f;
+    camera.frame(center, extent, viewportVec2());
+    cameraFramed = true;
 }
 
 void App::frameView() {
@@ -2350,6 +2683,23 @@ void App::dashedPairs(const std::vector<Mesh2D::Edge>& edges, const Mesh2D& p,
             t = t2 + gap;
         }
     }
+}
+
+// Rendu de l'outil mesure : segment entre les deux points posés (ou aperçu
+// depuis le 1er point vers le curseur), points aux extrémités. La distance est
+// affichée au HUD (ui.cpp).
+void App::drawMeasureVisual() {
+    if (!measureActive) return;
+    // Segment posé (2 points) ou aperçu depuis le 1er point vers le curseur.
+    const bool complete = measureHasB && !measureHasA;
+    const ImGuiIO& io = ImGui::GetIO();
+    const Vec2 ms{io.MousePos.x - viewportPos.x, io.MousePos.y - viewportPos.y};
+    const Vec2 mw = camera.screenToWorld(ms, viewportVec2());
+    const Vec2 cur = snappedPoint(mw);
+    const Vec2 end = complete ? measureB : cur;
+    std::vector<Vec2> segs = {measureA, end};
+    renderer.drawLines(segs, kPreview);
+    renderer.drawPoints({measureA, end}, 7.0f, kPreview);
 }
 
 // Rendu des aides à la fusion : anneau orange autour des points superposés

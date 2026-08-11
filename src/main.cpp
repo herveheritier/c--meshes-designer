@@ -139,15 +139,23 @@ int main(int, char**) {
             if (ev.type == SDL_QUIT) running = false;
             if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_CLOSE)
                 running = false;
-            // Glisser-déposer d'un fichier JSON : déclenche l'import (spec 12.2).
+            // Glisser-déposer d'un fichier JSON ou OBJ : déclenche l'import
+            // (spec 12.2).
             if (ev.type == SDL_DROPFILE) {
                 if (ev.drop.file) {
                     std::string path = ev.drop.file;
-                    const std::string ext = ".json";
+                    const std::string jsonExt = ".json";
+                    const std::string objExt = ".obj";
                     const bool isJson =
-                        path.size() > ext.size() &&
-                        path.compare(path.size() - ext.size(), ext.size(), ext) == 0;
+                        path.size() > jsonExt.size() &&
+                        path.compare(path.size() - jsonExt.size(), jsonExt.size(),
+                                     jsonExt) == 0;
+                    const bool isObj =
+                        path.size() > objExt.size() &&
+                        path.compare(path.size() - objExt.size(), objExt.size(),
+                                     objExt) == 0;
                     if (isJson) app.openImportDialog(1, path);
+                    else if (isObj) app.openImportDialog(2, path);
                     SDL_free(ev.drop.file);
                 }
             }

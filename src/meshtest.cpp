@@ -452,7 +452,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 51);  // toutes les icônes du dossier assets/
+    CHECK(n == 60);  // toutes les icônes du dossier assets/
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -536,6 +536,81 @@ static void testRoundTrip() {
     CHECK(!bad.ok);
 }
 
+static void testObjSvg() {
+    std::printf("[obj / svg]\n");
+
+    // OBJ : triangles + quad, formats d'indices variés (a, a/b, a//b, a/b/c).
+    {
+        const char* obj =
+            "# commentaire\n"
+            "v 0 0\n"
+            "v 1 0 0\n"
+            "v 0 1\n"
+            "v 2 0\n"
+            "v 2 1 0\n"
+            "f 1 2 3\n"
+            "f 1/1/2 4//3 5/2\n"
+            "f 1 2 4 5\n"
+            "f 1 2\n";  // face à 2 indices : ignorée
+        CHECK(writeTestFile("/tmp/meshtest_obj.obj", obj).ok);
+        Mesh2D m;
+        const IoResult r = loadObj(m, "/tmp/meshtest_obj.obj");
+        CHECK(r.ok);
+        CHECK((int)m.vertices.size() == 5);
+        CHECK((int)m.faces.size() == 3);  // 2 triangles + 1 quad
+        CHECK((int)m.faces[0].verts.size() == 3);
+        CHECK((int)m.faces[1].verts.size() == 3);
+        CHECK((int)m.faces[2].verts.size() == 4);
+    }
+
+    // Aller-retour exportOBJ → loadObj.
+    {
+        Mesh2D m;
+        const int a = m.addVertex({-1, -1});
+        const int b = m.addVertex({1, -1});
+        const int c = m.addVertex({1, 1});
+        m.addFace({a, b, c});
+        CHECK(exportOBJ(m, "/tmp/meshtest_roundtrip.obj").ok);
+        Mesh2D m2;
+        const IoResult r = loadObj(m2, "/tmp/meshtest_roundtrip.obj");
+        CHECK(r.ok);
+        CHECK((int)m2.vertices.size() == 3);
+        CHECK((int)m2.faces.size() == 1);
+        CHECK(m2.vertices[2].x == 1.0f && m2.vertices[2].y == 1.0f);
+        CHECK(m2.faces[0].verts[0] == 0 && m2.faces[0].verts[1] == 1 &&
+              m2.faces[0].verts[2] == 2);
+    }
+
+    // OBJ inexistant : refusé.
+    {
+        Mesh2D m;
+        CHECK(!loadObj(m, "/tmp/fichier-inexistant.obj").ok);
+    }
+
+    // Export SVG : polygones + couleur, Y inversé.
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({1, 0});
+        const int c = m.addVertex({0, 1});
+        const int fi = m.addFace({a, b, c});
+        m.faces[fi].color = {1.0f, 0.0f, 0.0f, 0.5f};
+        m.faces[fi].hasColor = true;
+        const IoResult r = exportPlaneSVG(m, "/tmp/meshtest.svg");
+        CHECK(r.ok);
+        std::ifstream f("/tmp/meshtest.svg");
+        std::stringstream buf;
+        buf << f.rdbuf();
+        const std::string svg = buf.str();
+        CHECK(svg.find("<svg") != std::string::npos);
+        CHECK(svg.find("<polygon points=\"0,0 1,0 0,-1 \"") != std::string::npos);
+        CHECK(svg.find("fill=\"rgba(255,0,0,0.5)\"") != std::string::npos);
+        // Plan vide : refusé.
+        Mesh2D empty;
+        CHECK(!exportPlaneSVG(empty, "/tmp/meshtest_vide.svg").ok);
+    }
+}
+
 static void testPngExport() {
     std::printf("[png export]\n");
     const std::string path = "/tmp/meshtest.png";
@@ -575,6 +650,7 @@ int main() {
     testRoundTrip();
     testSpecFormats();
     testSVGIcons();
+    testObjSvg();
     testPngExport();
 
     std::printf("\nRésultat : %d/%d vérifications OK\n", g_checks - g_failures, g_checks);

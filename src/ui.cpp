@@ -125,12 +125,15 @@ bool toolBtnIcon(const char* icon, const char* tip, bool active,
 
 // Pilule verte (ou ambre) lisible avec un compteur, icône facultative.
 // Hauteur alignée sur les boutons à icônes (kBtnFramePad.y) pour la lisibilité.
+// `minW` impose une largeur minimale : les compteurs (fps, plan, historique…)
+// ne font plus bouger la mise en page quand leur valeur change.
 void pill(const char* id, const char* text, const ImVec4& bg,
-          const char* icon = nullptr) {
+          const char* icon = nullptr, float minW = 0.0f) {
     const float ico = 14.0f;
     const bool hasIcon = icon != nullptr;
     const ImVec2 tsize = ImGui::CalcTextSize(text);
-    const float w = tsize.x + 18.0f + (hasIcon ? ico + 6.0f : 0.0f);
+    const float w =
+        std::max(tsize.x + 18.0f + (hasIcon ? ico + 6.0f : 0.0f), minW);
     const float h = btnFrameHeight();
     const ImVec2 size(w, h);
     ImGui::InvisibleButton(id, size);
@@ -146,6 +149,19 @@ void pill(const char* id, const char* text, const ImVec4& bg,
             tx += ico + 6.0f;
     }
     dl->AddText(ImVec2(tx, cy), IM_COL32(255, 255, 255, 240), text);
+}
+
+// Libellé de valeur à largeur FIXE (zoom, pas de grille, nombre de côtés,
+// rayon de fusion…) : la largeur du texte ne fait plus bouger la barre
+// d'outils quand la valeur change (texte centré dans la cellule réservée).
+void valueLabel(const char* text, float width) {
+    ImGui::Dummy(ImVec2(width, btnFrameHeight()));
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    ImGui::GetWindowDrawList()->AddText(
+        ImVec2(min.x + (width - ts.x) * 0.5f,
+               min.y + (btnFrameHeight() - ts.y) * 0.5f),
+        kDimCol, text);
 }
 
 // Séparateur vertical entre groupes de la barre d'outils.
@@ -175,7 +191,9 @@ void handleShortcuts(App& app) {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
     // Ne jamais éditer la scène derrière une fenêtre modale.
-    if (app.dlgSaveOpen || app.dlgImportOpen || app.dlgResetOpen || app.dlgDeletePlaneOpen)
+    if (app.dlgSaveOpen || app.dlgImportOpen || app.dlgResetOpen ||
+        app.dlgDeletePlaneOpen || app.dlgRotateOpen || app.dlgScaleOpen ||
+        app.dlgPngOpen || app.dlgSvgOpen || app.dlgVersionsOpen)
         return;
 
     // En mode kiosque : seuls la sortie et le bouton du mode sont disponibles.
@@ -244,10 +262,32 @@ void handleShortcuts(App& app) {
         app.frameView();
         app.setStatus("Tout afficher : zoom automatique sur la scène entière (Accueil)");
     }
+    // Cadrer la sélection : zoom automatique sur la sélection courante (Ctrl+F).
+    if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F)) {
+        app.frameSelection();
+        app.setStatus("Cadrer la sélection : zoom automatique (Ctrl+F)");
+    }
+    // Miroir de la sélection : M = X, Maj+M = Y (autour du 1er point choisi).
+    if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_M)) {
+        if (io.KeyShift) app.mirrorSelectionY();
+        else app.mirrorSelectionX();
+    }
+    // Outil mesure : distance entre deux points (Ctrl+M).
+    if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_M))
+        app.toggleMeasure();
+    // Dupliquer le plan actif (Alt+D).
+    if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_D))
+        app.duplicatePlane();
 
     if (ImGui::IsKeyPressed(ImGuiKey_G)) {
         app.gridOn = !app.gridOn;
         app.setStatus(app.gridOn ? "Grille affichée (G)" : "Grille masquée (G)");
+    }
+    // Aimantation indépendante de l'affichage de la grille (Maj+G).
+    if (io.KeyShift && !io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_G)) {
+        app.snapOn = !app.snapOn;
+        app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                 : "Aimantation désactivée (Maj+G)");
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Y)) app.cycleReticle();  // Y : R est pris par le rectangle
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
@@ -282,6 +322,9 @@ void handleShortcuts(App& app) {
     // Rotation précise : saisie d'un angle exact (Alt+R).
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R))
         app.dlgRotateOpen = true;
+    // Mise à l'échelle précise : saisie d'un facteur (Alt+S).
+    if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S))
+        app.dlgScaleOpen = true;
 
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
         app.toVertexSelection();
@@ -336,12 +379,13 @@ void toolbar(App& app) {
         app.setStatus("Pas de grille réinitialisé (1.0)");
     }
     ImGui::SameLine();
-    // Centre verticalement le texte du pas de grille sur la hauteur du bouton
-    // (le SameLine suivant reste aligné sur le haut de ligne).
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-                         (btnFrameHeight() - ImGui::GetFrameHeight()) * 0.5f);
-    ImGui::TextDisabled("%.2f", app.gridStep);
-
+    // Valeur du pas de grille à largeur FIXE (100.00 au maximum) : le texte ne
+    // fait pas bouger les boutons suivants quand la valeur change.
+    {
+        char stepbuf[16];
+        std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
+        valueLabel(stepbuf, ImGui::CalcTextSize("100.00").x);
+    }
     ImGui::SameLine();
     if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
                     app.reticle != ReticleState::Off, kGreen, false))
@@ -364,9 +408,26 @@ void toolbar(App& app) {
         app.frameView();
 
     ImGui::SameLine();
+    if (toolBtnIcon("fit-selection",
+                    "Cadrer la sélection (Ctrl+F) : zoom automatique sur la "
+                    "sélection courante",
+                    false, kGreen, false))
+        app.frameSelection();
+
+    ImGui::SameLine();
+    if (toolBtnIcon("measure",
+                    app.measureActive
+                        ? "Outil mesure armé — 2 clics : distance affichée au HUD "
+                          "(Ctrl+M pour désarmer)"
+                        : "Outil mesure (Ctrl+M) : distance entre deux points",
+                    app.measureActive, kGreen, false))
+        app.toggleMeasure();
+
+    ImGui::SameLine();
     char fpsbuf[32];
     std::snprintf(fpsbuf, sizeof(fpsbuf), "%.0f fps", app.fps);
-    pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps");
+    pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
+         ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
 
     ImGui::SameLine();
     const char* targetLabel = selModeName(app.selMode);
@@ -408,6 +469,11 @@ void toolbar(App& app) {
         app.dlgRotateOpen = !app.dlgRotateOpen;
 
     ImGui::SameLine();
+    if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
+                    app.dlgScaleOpen, kGreen, false))
+        app.dlgScaleOpen = !app.dlgScaleOpen;
+
+    ImGui::SameLine();
     if (toolBtnIcon("shapes", "Formes prédéfinies (cercle, carré, étoile, anneau…)",
                     app.shapesOpen || app.isShapeArmed(), kGreen, false))
         app.shapesOpen = !app.shapesOpen;
@@ -435,7 +501,8 @@ void toolbar(App& app) {
     }
     ImGui::SameLine();
     if (app.selectionCount() > 0)
-        pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen);
+        pill("##pillsel", std::to_string(app.selectionCount()).c_str(), kGreen,
+             nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
 
     // --- Fusion des points (5.5 / 5.6) ---
     const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
@@ -467,12 +534,13 @@ void toolbar(App& app) {
             std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
         app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
     }
-    // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6).
+    // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6),
+    // à largeur FIXE pour ne pas décaler la barre quand la valeur change.
     if (mergeArmed) {
         ImGui::SameLine();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-                             (btnFrameHeight() - ImGui::GetFrameHeight()) * 0.5f);
-        ImGui::TextDisabled("%d", app.mergeRadius);
+        char radbuf[8];
+        std::snprintf(radbuf, sizeof(radbuf), "%d", app.mergeRadius);
+        valueLabel(radbuf, ImGui::CalcTextSize("64").x);
     }
 
     // --- Groupe 2 : annuler / rétablir (avec compteur) ---
@@ -480,13 +548,15 @@ void toolbar(App& app) {
     if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
         app.undo();
     ImGui::SameLine();
-    pill("##pillundo", std::to_string(app.undoStack.size()).c_str(), kGreen);
+    pill("##pillundo", std::to_string(app.undoStack.size()).c_str(), kGreen, nullptr,
+         ImGui::CalcTextSize("50").x + 18.0f);
     ImGui::SameLine();
     if (toolBtnIcon("redo", "Rétablir (Ctrl+Maj+Z ou Ctrl+Y)", false, kGreen,
                     app.redoStack.empty()))
         app.redo();
     ImGui::SameLine();
-    pill("##pillredo", std::to_string(app.redoStack.size()).c_str(), kGreen);
+    pill("##pillredo", std::to_string(app.redoStack.size()).c_str(), kGreen, nullptr,
+         ImGui::CalcTextSize("50").x + 18.0f);
 
     // --- Ligne 2 : simple retour à la ligne. L'ancien code sautait de
     // `GetCursorPosY() + rowH`, mais le curseur inclut déjà l'espacement :
@@ -507,6 +577,15 @@ void toolbar(App& app) {
                           app.sceneName.c_str());
         }
     }
+    ImGui::SameLine();
+    if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
+                    false, kGreen, false))
+        app.dlgSvgOpen = true;
+    ImGui::SameLine();
+    if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
+                                "(restaurer un état antérieur)",
+                    false, kGreen, app.versionFiles.empty()))
+        app.dlgVersionsOpen = true;
 
     // --- Groupe 4 : entrées ---
     groupSep();
@@ -517,6 +596,10 @@ void toolbar(App& app) {
     if (toolBtnIcon("import-json", "Charger un fichier de scène JSON (ou glisser-déposer)",
                     false, kBlue, false))
         app.openImportDialog(1);
+    ImGui::SameLine();
+    if (toolBtnIcon("import-obj", "Charger un fichier OBJ (v/f — les faces sont triangulées)",
+                    false, kBlue, false))
+        app.openImportDialog(2);
 
     // --- Groupe 5 : navigation entre plans (7) ---
     groupSep();
@@ -530,7 +613,12 @@ void toolbar(App& app) {
     ImGui::SameLine();
     char planbuf[24];
     std::snprintf(planbuf, sizeof(planbuf), "%d/%d", app.scene.active + 1, n);
-    pill("##pillplan", planbuf, kGreen);
+    pill("##pillplan", planbuf, kGreen, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
+    ImGui::SameLine();
+    if (toolBtnIcon("duplicate-plane", "Dupliquer le plan actif (Alt+D) — copie complète "
+                                        "avec ses couleurs, insérée juste au-dessus",
+                    false, kGreen, n < 1))
+        app.duplicatePlane();
     ImGui::SameLine();
     if (toolBtnIcon("move-shape-up", "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
                     false, kGreen, app.scene.active >= n - 1))
@@ -615,6 +703,37 @@ void hud(App& app, ImDrawList* dl, const ImVec2& size) {
                   app.dirty ? " *" : "");
     drawText(dl, 10.0f, y - 18.0f, buf, kDimCol);
     y -= 18.0f;
+
+    // Statistiques du plan actif : sommets, triangles et aire totale.
+    {
+        const Mesh2D& m = app.scene.activePlane();
+        std::snprintf(buf, sizeof(buf),
+                      "Plan %d/%d : %d sommets · %d triangles · aire %.2f",
+                      app.scene.active + 1, app.scene.count(), (int)m.vertices.size(),
+                      m.triangleCount(), app.activePlaneArea());
+        drawText(dl, 10.0f, y - 18.0f, buf, kDimCol);
+        y -= 18.0f;
+    }
+
+    // Outil mesure : distance entre les deux points posés (ou aperçu en cours,
+    // aimanté comme le tracé pour rester cohérent avec le segment dessiné).
+    if (app.measureActive) {
+        const bool complete = app.measureHasB && !app.measureHasA;
+        if (complete || app.measureHasA) {
+            const Vec2 mw = app.camera.screenToWorld(
+                {io.MousePos.x - app.viewportPos.x, io.MousePos.y - app.viewportPos.y},
+                app.viewportVec2());
+            Vec2 end = app.snapOn
+                           ? Vec2{std::round(mw.x / app.gridStep) * app.gridStep,
+                                  std::round(mw.y / app.gridStep) * app.gridStep}
+                           : mw;
+            if (complete) end = app.measureB;
+            std::snprintf(buf, sizeof(buf), "mesure : %.2f unités",
+                          distance(app.measureA, end));
+            drawText(dl, 10.0f, y - 18.0f, buf, kDimCol);
+            y -= 18.0f;
+        }
+    }
 
     // Toast contextuel (aide prospective) au-dessus du HUD.
     if (app.toastAge > 0.0f && !app.toast.empty()) {
@@ -802,28 +921,36 @@ void shapesPanel(App& app) {
         for (const auto& s : shapes) {
             if (toolBtnIcon(s.icon, s.tip, app.tool == s.tool, kGreen, false, s.label))
                 app.startShapeTool(s.tool);
-            // 4.2 : la molette sur le bouton Cercle / Anneau règle le nombre de
-            // côtés (comme sur le canvas), et le compteur reste affiché en
-            // permanence à côté du bouton — armé ou non.
-            const bool sidesShape = s.tool == Tool::Circle || s.tool == Tool::Ring;
+            // 4.2 : la molette sur le bouton Cercle / Anneau / Étoile règle le
+            // nombre de côtés (comme sur le canvas), et le compteur reste
+            // affiché en permanence à côté du bouton — armé ou non. La largeur
+            // du compteur est FIXE : la barre ne bouge pas quand la valeur
+            // change (3..64).
+            const bool sidesShape =
+                s.tool == Tool::Circle || s.tool == Tool::Ring || s.tool == Tool::Star;
             if (sidesShape) {
                 if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
                     app.circleSides =
                         std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-                    app.setStatus("Nombre de côtés du " +
-                                  std::string(s.tool == Tool::Circle ? "cercle" : "anneau") +
+                    app.setStatus("Nombre de " +
+                                  std::string(s.tool == Tool::Star ? "pointes de l'étoile"
+                                                                   : "côtés du " +
+                                                                         std::string(s.tool == Tool::Circle
+                                                                                         ? "cercle"
+                                                                                         : "anneau")) +
                                   " : " + std::to_string(app.circleSides));
                 }
                 ImGui::SameLine();
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
-                                     (btnFrameHeight() - ImGui::GetFrameHeight()) * 0.5f);
-                ImGui::TextDisabled("%d côtés", app.circleSides);
+                char sidesbuf[24];
+                std::snprintf(sidesbuf, sizeof(sidesbuf), "%d %s", app.circleSides,
+                              s.tool == Tool::Star ? "pointes" : "côtés");
+                valueLabel(sidesbuf, ImGui::CalcTextSize("64 côtés").x);
             }
         }
         ImGui::Separator();
         ImGui::TextDisabled("2 clics : ancre puis valider · étoile et anneau : 3 clics");
-        ImGui::TextDisabled("Molette sur le canvas ou le bouton actif (cercle/anneau) : "
-                            "nombre de côtés.");
+        ImGui::TextDisabled("Molette sur le canvas ou le bouton actif "
+                            "(cercle/anneau/étoile) : nombre de côtés.");
         ImGui::TextDisabled("Clic droit ou Retour arrière : annuler le tracé · Échap : quitter.");
         ImGui::Separator();
         ImGui::TextDisabled("Raccourcis : C cercle · R rectangle · T triangle · Q carré");
@@ -863,6 +990,13 @@ void alignPanel(App& app) {
             ensureVertexSel();
             app.distributeY();
         }
+        ImGui::Separator();
+        if (toolBtnIcon("mirror-x", "Miroir X (M) — symétrie autour du 1er point choisi",
+                        false, kGreen, !align, "Miroir X (M)"))
+            app.mirrorSelectionX();
+        if (toolBtnIcon("mirror-y", "Miroir Y (Maj+M) — symétrie autour du 1er point choisi",
+                        false, kGreen, !align, "Miroir Y (Maj+M)"))
+            app.mirrorSelectionY();
         ImGui::Separator();
         ImGui::TextDisabled("≥ 2 points pour aligner, ≥ 3 pour répartir.");
         ImGui::TextDisabled("L'ancre est le premier point sélectionné.");
@@ -1013,6 +1147,19 @@ void settingsPanel(App& app) {
                               "triangle (mode sommet) — vaut aussi pour la "
                               "sélection en cible « segment ».");
         ImGui::Separator();
+        ImGui::TextUnformatted("Grille :");
+        if (ImGui::Checkbox("Afficher la grille (G)", &app.gridOn)) {
+            app.setStatus(app.gridOn ? "Grille affichée (G)" : "Grille masquée (G)");
+        }
+        if (ImGui::Checkbox("Aimanter sur la grille (Maj+G)", &app.snapOn)) {
+            app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                     : "Aimantation désactivée (Maj+G)");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("L'aimantation accroche les points posés, déplacés "
+                              "ou collés aux intersections de la grille — "
+                              "indépendamment de son affichage.");
+        ImGui::Separator();
         ImGui::TextDisabled("Mémorisé entre les sessions (préférences).");
         ImGui::TextDisabled("Le rayon de fusion par déplacement (molette sur le bouton "
                             "« Fusionner ») est aussi mémorisé.");
@@ -1033,9 +1180,12 @@ void helpWindow(App& app) {
         ImGui::BulletText("Ctrl+S : enregistrer (fenêtre d'emplacement)");
         ImGui::BulletText("Ctrl+0 : zoom 100 %% recentré");
         ImGui::BulletText("G : grille · Y : réticule · F : compteur de redessins · P : prévisualiser");
-        ImGui::BulletText("Accueil : tout afficher (zoom automatique sur la scène)");
+        ImGui::BulletText("Accueil : tout afficher · Ctrl+F : cadrer la sélection (zoom automatique)");
         ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau");
         ImGui::BulletText("Ctrl+D : dupliquer la sélection · Ctrl+A : tout sélectionner · Ctrl+I : inverser la sélection");
+        ImGui::BulletText("M / Maj+M : miroir X / Y de la sélection · Alt+S : mise à l'échelle précise (facteur)");
+        ImGui::BulletText("Ctrl+M : outil mesure (2 clics : distance au HUD) · Alt+D : dupliquer le plan actif");
+        ImGui::BulletText("Maj+G : aimantation sur la grille sans son affichage (ou l'inverse)");
         ImGui::BulletText("Alt+R : rotation précise (saisie d'un angle)");
         ImGui::BulletText("? : cette aide · Échap : quitter le mode en cours");
         ImGui::BulletText("Alt+← / Alt+→ : aligner X / Y · Alt+Maj+←/→ : répartir X / Y");
@@ -1053,7 +1203,8 @@ void helpWindow(App& app) {
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
-        ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, rayon de fusion)");
+        ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
+        ImGui::BulletText("Historique (barre d'outils) : versions horodatées de l'autosave — restaurer un état antérieur");
         ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
         ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
         ImGui::BulletText("Engrenage (barre d'outils) : distance de détection des segments (illumination au survol)");
@@ -1386,7 +1537,9 @@ void saveDialog(App& app) {
 
 void importDialog(App& app) {
     if (!app.dlgImportOpen) return;
-    const char* title = app.dlgImportFmt == 0 ? "Charger meshes" : "Charger JSON";
+    const char* title = app.dlgImportFmt == 0   ? "Charger meshes"
+                      : app.dlgImportFmt == 1   ? "Charger JSON"
+                                                : "Charger OBJ";
     ImGui::OpenPopup(title);
     ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1407,7 +1560,9 @@ void importDialog(App& app) {
             app.dlgImportReplace = (mode == 1);
             const bool ok = app.dlgImportFmt == 0
                                 ? app.importMeshes(app.dlgImportPath, mode == 1)
-                                : app.importJson(app.dlgImportPath, mode == 1);
+                                : app.dlgImportFmt == 1
+                                      ? app.importJson(app.dlgImportPath, mode == 1)
+                                      : app.importObj(app.dlgImportPath, mode == 1);
             if (ok) ImGui::CloseCurrentPopup();
             // En cas d'échec, l'erreur est signalée (status + console) sans fermer.
         }
@@ -1505,6 +1660,113 @@ void rotateDialog(App& app) {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             app.dlgRotateOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// Mise à l'échelle précise : saisie d'un facteur (Alt+S). Pivot = centre de la
+// sélection, comme la rotation précise.
+void scaleDialog(App& app) {
+    if (!app.dlgScaleOpen) return;
+    ImGui::OpenPopup("Mise à l'échelle");
+    ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Mise à l'échelle", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Facteur d'échelle (×2 = double, ×0,5 = moitié) :");
+        ImGui::SetNextItemWidth(180);
+        ImGui::InputFloat("##scale", &app.scaleFactor, 0.25f, 1.0f, "×%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Facteur strictement positif, différent de 1 ; "
+                              "le pivot est le centre de la sélection.");
+        ImGui::TextDisabled("Le pivot est le centre de la sélection (≥ 2 sommets).");
+        if (toolBtnIcon("scale", "Appliquer la mise à l'échelle à la sélection", false,
+                        kGreen, false, "Appliquer", 130.0f) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused())) {
+            app.scaleSelectionExact(app.scaleFactor);
+            app.dlgScaleOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 130.0f)) {
+            app.dlgScaleOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgScaleOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// Export SVG du plan actif : chemin du fichier.
+void svgDialog(App& app) {
+    if (!app.dlgSvgOpen) return;
+    ImGui::OpenPopup("Exporter le plan en SVG");
+    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Exporter le plan en SVG", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Chemin du fichier SVG (par ex. ~/plan.svg) :");
+        ImGui::SetNextItemWidth(470);
+        ImGui::InputText("##svgpath", app.dlgSvgPath, sizeof(app.dlgSvgPath));
+        ImGui::TextDisabled("Le fichier contient un polygone par face du plan actif, "
+                            "avec les couleurs de remplissage — édition vectorielle.");
+        bool doExport = false;
+        if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG", false, kGreen,
+                        false, "Exporter", 150.0f) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
+            doExport = true;
+        if (doExport) {
+            app.exportSvgTo(app.dlgSvgPath);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", 150.0f)) {
+            app.dlgSvgOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgSvgOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// Historique des versions horodatées de l'autosave.
+void versionsDialog(App& app) {
+    if (!app.dlgVersionsOpen) return;
+    ImGui::OpenPopup("Historique des sauvegardes");
+    ImGui::SetNextWindowSize(ImVec2(540, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Historique des sauvegardes", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Versions horodatées de l'autosave "
+                               "(10 conservées, de la plus récente à la plus ancienne) :");
+        ImGui::BeginChild("##versions", ImVec2(500, 170), true);
+        if (app.versionFiles.empty()) {
+            ImGui::TextDisabled("Aucune version pour l'instant.");
+        } else {
+            for (size_t i = 0; i < app.versionFiles.size(); ++i) {
+                ImGui::PushID((int)i);
+                ImGui::TextUnformatted(app.versionFiles[i].c_str());
+                ImGui::SameLine();
+                if (toolBtnIcon("history", "Restaurer cette version", false, kGreen,
+                                false, "Restaurer", 110.0f))
+                    app.restoreVersionFile(app.versionFiles[i]);
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::TextDisabled("Restaurer remplace la scène courante par cette version "
+                            "(annulable avec Ctrl+Z).");
+        if (toolBtnIcon("close", "Fermer", false, kGreen, false, "Fermer", 150.0f)) {
+            app.dlgVersionsOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgVersionsOpen = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1615,7 +1877,10 @@ void frame(App& app) {
     resetDialog(app);
     deletePlaneDialog(app);
     rotateDialog(app);
+    scaleDialog(app);
     pngDialog(app);
+    svgDialog(app);
+    versionsDialog(app);
 }
 
 bool quitRequested() { return g_quit; }
