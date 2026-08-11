@@ -281,15 +281,18 @@ void handleShortcuts(App& app) {
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_D))
         app.duplicatePlane();
 
+    // G : afficher/masquer la grille · Maj+G : aimantation seule (indépendante
+    // de l'affichage). NB : Maj+G produit la même touche physique que G — il ne
+    // faut PAS laisser un gestionnaire « G seul » se déclencher en plus.
     if (ImGui::IsKeyPressed(ImGuiKey_G)) {
-        app.gridOn = !app.gridOn;
-        app.setStatus(app.gridOn ? "Grille affichée (G)" : "Grille masquée (G)");
-    }
-    // Aimantation indépendante de l'affichage de la grille (Maj+G).
-    if (io.KeyShift && !io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_G)) {
-        app.snapOn = !app.snapOn;
-        app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
-                                 : "Aimantation désactivée (Maj+G)");
+        if (io.KeyShift && !io.KeyCtrl && !io.KeyAlt) {
+            app.snapOn = !app.snapOn;
+            app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                     : "Aimantation désactivée (Maj+G)");
+        } else if (!io.KeyCtrl && !io.KeyAlt) {
+            app.gridOn = !app.gridOn;
+            app.setStatus(app.gridOn ? "Grille affichée (G)" : "Grille masquée (G)");
+        }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Y)) app.cycleReticle();  // Y : R est pris par le rectangle
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
@@ -368,7 +371,10 @@ void toolbar(App& app) {
                      ImGuiWindowFlags_AlwaysAutoResize);
 
     // --- Groupe 1 : canevas / édition ---
-    if (toolBtnIcon("grid", "Grille (G) — molette : ajuster le pas, clic du milieu : réinitialiser",
+    if (toolBtnIcon("grid",
+                    "Grille (G) — clic gauche : afficher/masquer · molette : ajuster "
+                    "le pas · clic du milieu : réinitialiser · clic droit : "
+                    "aimantation on/off (Maj+G)",
                     app.gridOn, kGreen, false))
         app.gridOn = !app.gridOn;
     if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
@@ -379,6 +385,13 @@ void toolbar(App& app) {
     if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
         app.gridStep = 1.0f;
         app.setStatus("Pas de grille réinitialisé (1.0)");
+    }
+    // Clic droit sur le bouton Grille : aimantation on/off (sans toucher à
+    // l'affichage) — accessible là où l'utilisateur cherche.
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        app.snapOn = !app.snapOn;
+        app.setStatus(app.snapOn ? "Aimantation activée (clic droit — Maj+G)"
+                                 : "Aimantation désactivée (clic droit — Maj+G)");
     }
     ImGui::SameLine();
     // Valeur du pas de grille à largeur FIXE (100.00 au maximum) : le texte ne
@@ -1228,6 +1241,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
+        ImGui::BulletText("Clic droit sur le bouton Grille : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
         ImGui::BulletText("Historique (barre d'outils) : versions horodatées de l'autosave — restaurer un état antérieur");
         ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
         ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
