@@ -23,16 +23,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## À réaliser
 
-### Manquantes par rapport à `FONCTIONNALITES.md`
-
-> Évolutions décrites dans la spécification mais pas encore implémentées.
-> Les références (§) renvoient aux chapitres de `FONCTIONNALITES.md`.
-
-- [ ] **Aide prospective au survol des entités** (13) : le toast décrit le geste possible
-  au survol d'un sommet (« sélectionner ce sommet — clic droit pour le déplacer ») et
-  d'une arête de triangle (« Clic gauche pour créer un nouveau triangle à partir de ce
-  segment ») — actuellement le toast ne se déclenche que sur les actions et au kiosque.
-
 ### Idées d'évolutions supplémentaires (hors spec)
 
 > Exemples à compléter, ajuster et prioriser au fil du temps.
@@ -50,6 +40,12 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-11 · `4b7f52a` — Aide prospective au survol des entités (13) : au survol d'un
+  sommet, le toast indique « sélectionner ce sommet — clic droit pour le déplacer » ; sur
+  une arête de triangle, « Clic gauche pour créer un nouveau triangle à partir de ce
+  segment ». L'aide couvre aussi les modes segment et triangle, le pinceau armé et la
+  zone vide, et guide la phase en cours pendant une construction (forme prédéfinie ou
+  triangle).
 - 2026-08-11 · `2469d45` — Molette sur le bouton de la forme active (4.2) : le nombre
   de côtés du cercle et de l'anneau se règle aussi à la molette sur le bouton de la
   forme (plus seulement sur le canvas), avec le compteur de côtés affiché à côté du
