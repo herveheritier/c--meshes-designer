@@ -28,7 +28,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 > Évolutions décrites dans la spécification mais pas encore implémentées.
 > Les références (§) renvoient aux chapitres de `FONCTIONNALITES.md`.
 
-- [ ] **Molette sur le bouton de la forme active** (4.2) : régler aussi le nombre de côtés
+- [x] **Molette sur le bouton de la forme active** (4.2) : régler aussi le nombre de côtés
   du cercle et de l'anneau à la molette sur le bouton (aujourd'hui réglable uniquement
   sur le canvas).
 - [ ] **Aide prospective au survol des entités** (13) : le toast décrit le geste possible
@@ -48,11 +48,16 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 - [ ] **Raccourcis des formes** : touche dédiée pour chaque forme prédéfinie (cercle, rectangle, étoile, anneau…).
 - [ ] **Image inversée dans kiosque** : les plans sont dessinées à tort avec inversion du haut et du bas ; corriger.
 - [ ] **Détection** : mémoriser entre 2 sessions les distances de détection qui sont paramétrées par l'utilisateur
-
+- [ ] **Inverser la sélection** : bouton et raccourci créer ; ce bouton et le bouton tout sélectionner sont des boutons qui doivent apparaitre au clic droit sur un bouton dédié à la sélection ; comportement similaire à un menu contextuel
 ---
 
 ## Effectuées
 
+- 2026-08-11 · `2469d45` — Aperçu du tracé des formes (4.2) : le contour de la forme
+  prévisualisée ne se refermait pas complètement autour de la zone remplie
+  (seule une arête sur deux était tracée) ; il suit désormais intégralement le
+  pourtour de la zone grise pour toutes les formes (rectangle, carré, triangle,
+  cercle, pentagone, hexagone, étoile et anneau).
 - 2026-08-11 · `28afde3` — Fusion des points superposés (5.5) : anneau orange à chaque
   position où plusieurs points coïncident, clic sur l'anneau qui sélectionne tous les
   points superposés, bouton « Fusionner » qui les regroupe à la position moyenne. Fusion
