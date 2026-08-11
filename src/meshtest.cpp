@@ -206,6 +206,161 @@ static void testCrownBand() {
     }
 }
 
+// Découpe de formes : soustraction de polygones (subtractPolygon) et
+// triangulation avec trous (triangulatePolygonHoles) — le résultat doit
+// couvrir exactement le sujet moins la découpe : somme des aires attendue,
+// aucun croisement ni chevauchement entre triangles.
+static void testCutPolygons() {
+    std::printf("[découpe de formes]\n");
+
+    const auto area2 = [](const Vec2& a, const Vec2& b, const Vec2& c) {
+        return cross(b - a, c - a);
+    };
+    // Croisement propre (points intérieurs) — même convention que l'anneau.
+    const auto segCross = [](const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
+        const float eps = 1e-4f;
+        const float d1 = cross(d - c, a - c);
+        const float d2 = cross(d - c, b - c);
+        const float d3 = cross(b - a, c - a);
+        const float d4 = cross(b - a, d - a);
+        const auto side = [eps](float v) { return v > eps ? 1 : (v < -eps ? -1 : 0); };
+        return side(d1) * side(d2) < 0 && side(d3) * side(d4) < 0;
+    };
+    // Sommet strictement à l'intérieur d'un triangle (chevauchement).
+    const auto inTri = [&](const Vec2& p, const Vec2& a, const Vec2& b, const Vec2& c) {
+        const float eps = 1e-4f;
+        const float d1 = area2(a, b, p);
+        const float d2 = area2(b, c, p);
+        const float d3 = area2(c, a, p);
+        return (d1 > eps && d2 > eps && d3 > eps) || (d1 < -eps && d2 < -eps && d3 < -eps);
+    };
+    // Vérifie une triangulation : pas de croisement ni de chevauchement entre
+    // triangles, et aire totale égale à `expected`.
+    const auto checkTris = [&](const std::vector<Vec2>& pts, const std::vector<int>& tris,
+                               double expected) {
+        CHECK((int)tris.size() % 3 == 0);
+        const int nt = (int)tris.size() / 3;
+        std::vector<std::vector<Vec2>> T;
+        std::vector<double> areas;
+        for (int i = 0; i < nt; ++i) {
+            const Vec2 a = pts[tris[i * 3]];
+            const Vec2 b = pts[tris[i * 3 + 1]];
+            const Vec2 c = pts[tris[i * 3 + 2]];
+            T.push_back({a, b, c});
+            areas.push_back(std::fabs(area2(a, b, c)) * 0.5);
+        }
+        for (int t1 = 0; t1 < nt; ++t1) {
+            for (int t2 = t1 + 1; t2 < nt; ++t2) {
+                const Vec2& a = T[t1][0];
+                const Vec2& b = T[t1][1];
+                const Vec2& c = T[t1][2];
+                const Vec2& p = T[t2][0];
+                const Vec2& q = T[t2][1];
+                const Vec2& r = T[t2][2];
+                const Vec2 e1[3][2] = {{a, b}, {b, c}, {c, a}};
+                const Vec2 e2[3][2] = {{p, q}, {q, r}, {r, p}};
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        CHECK(!segCross(e1[i][0], e1[i][1], e2[j][0], e2[j][1]));
+                CHECK(!(inTri(p, a, b, c) || inTri(q, a, b, c) || inTri(r, a, b, c)));
+                CHECK(!(inTri(a, p, q, r) || inTri(b, p, q, r) || inTri(c, p, q, r)));
+            }
+        }
+        double sum = 0.0;
+        for (double a : areas) sum += a;
+        CHECK(std::fabs(sum - expected) < 1e-3);
+    };
+
+    // Anneau : carré 4×4 percé d'un carré 2×2 (aire restante 12).
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(subtractPolygon({{0, 0}, {4, 0}, {4, 4}, {0, 4}}, {{1, 1}, {3, 1}, {3, 3}, {1, 3}},
+                              pts, tris));
+        CHECK(!tris.empty());
+        checkTris(pts, tris, 12.0);
+    }
+
+    // Découpe qui traverse un triangle (partiel) : le triangle d'aire 8 moins
+    // le carré qui le chevauche (intersection d'aire 3,5) → il reste 4,5.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(subtractPolygon({{0, 0}, {4, 0}, {0, 4}}, {{1, -1}, {3, -1}, {3, 2}, {1, 2}},
+                              pts, tris));
+        checkTris(pts, tris, 4.5);
+    }
+
+    // Aucune intersection : la découpe ne touche pas le sujet.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(!subtractPolygon({{0, 0}, {1, 0}, {0, 1}}, {{5, 5}, {6, 5}, {6, 6}, {5, 6}},
+                               pts, tris));
+        CHECK(tris.empty());
+    }
+
+    // Sujet entièrement recouvert : il disparaît (résultat vide).
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(subtractPolygon({{0, 0}, {1, 0}, {0, 1}}, {{-1, -1}, {2, -1}, {2, 2}, {-1, 2}},
+                              pts, tris));
+        CHECK(tris.empty());
+    }
+
+    // Triangulation directe avec trous.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(triangulatePolygonHoles({{0, 0}, {4, 0}, {4, 4}, {0, 4}},
+                                      {{{1, 1}, {3, 1}, {3, 3}, {1, 3}}}, pts, tris));
+        checkTris(pts, tris, 12.0);
+    }
+
+    // Découpe d'un plan entier (Mesh2D::cutPolygon) : la face carrée devient
+    // un anneau, la face distante reste intacte, la couleur est conservée, et
+    // une découpe sans intersection ne change rien.
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({4, 0});
+        const int c = m.addVertex({4, 4});
+        const int d = m.addVertex({0, 4});
+        const int q = m.addFace({a, b, c, d});  // grand carré
+        m.faces[q].color = {0.2f, 0.5f, 0.9f, 0.6f};
+        m.faces[q].hasColor = true;
+        const int e = m.addVertex({10, 0});
+        const int f = m.addVertex({11, 0});
+        const int g = m.addVertex({10, 1});
+        m.addFace({e, f, g});  // petit triangle loin de la découpe (aire 0,5)
+
+        CHECK(m.cutPolygon({{1, 1}, {3, 1}, {3, 3}, {1, 3}}));
+        // Aire totale : 12 (anneau) + 0,5 (triangle intact) = 12,5.
+        std::vector<int> tris;
+        m.triangulated(tris);
+        double area = 0.0;
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+            const Vec2& x = m.vertices[tris[i]];
+            const Vec2& y = m.vertices[tris[i + 1]];
+            const Vec2& z = m.vertices[tris[i + 2]];
+            area += std::fabs(area2(x, y, z)) * 0.5;
+        }
+        CHECK(std::fabs(area - 12.5) < 1e-3);
+        // La couleur de la face découpée est conservée sur les nouveaux triangles.
+        bool hasColor = false;
+        for (const Face& fc : m.faces)
+            if (fc.hasColor && fc.color.r == 0.2f) hasColor = true;
+        CHECK(hasColor);
+
+        // Une découpe sans intersection ne modifie pas le plan.
+        Mesh2D m2 = m;
+        CHECK(!m2.cutPolygon({{50, 50}, {51, 50}, {51, 51}, {50, 51}}));
+        CHECK((int)m2.faces.size() == (int)m.faces.size());
+        CHECK((int)m2.vertices.size() == (int)m.vertices.size());
+    }
+}
+
 static void testMeshOps() {
     std::printf("[opérations mesh]\n");
 
@@ -582,7 +737,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 65);  // toutes les icônes du dossier assets/
+    CHECK(n == 66);  // toutes les icônes du dossier assets/
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -777,6 +932,7 @@ static void testPngExport() {
 int main() {
     testTriangulation();
     testCrownBand();
+    testCutPolygons();
     testMeshOps();
     testRoundTrip();
     testSpecFormats();

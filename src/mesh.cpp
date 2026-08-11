@@ -148,6 +148,61 @@ bool Mesh2D::removeFace(int index) {
     return true;
 }
 
+bool Mesh2D::cutPolygon(const std::vector<Vec2>& cut) {
+    if (cut.size() < 3) return false;
+    if (faces.empty()) return false;
+
+    // Les sommets actuels sont conservés (indices stables) ; les points
+    // produits par le recoupage sont ajoutés à la suite, dédupliqués par
+    // position pour recoller les arêtes partagées entre faces.
+    std::vector<Vec2> newVerts = vertices;
+    std::vector<Face> newFaces;
+    newFaces.reserve(faces.size());
+    bool changed = false;
+
+    const auto findOrAdd = [&](const Vec2& p) -> int {
+        for (size_t i = 0; i < newVerts.size(); ++i)
+            if (distance(newVerts[i], p) < 1e-4f) return (int)i;
+        newVerts.push_back(p);
+        return (int)newVerts.size() - 1;
+    };
+
+    for (const Face& f : faces) {
+        if ((int)f.verts.size() < 3) continue;
+        std::vector<Vec2> facePts;
+        facePts.reserve(f.verts.size());
+        for (int v : f.verts) facePts.push_back(vertices[v]);
+
+        std::vector<Vec2> outPts;
+        std::vector<int> tris;
+        if (!subtractPolygon(facePts, cut, outPts, tris)) {
+            // Face intacte : conservée telle quelle.
+            newFaces.push_back(f);
+            continue;
+        }
+        changed = true;
+
+        // Les triangles du résultat remplacent la face (couleur conservée).
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+            const Vec2& a = outPts[tris[i]];
+            const Vec2& b = outPts[tris[i + 1]];
+            const Vec2& c = outPts[tris[i + 2]];
+            // Triangles dégénérés (bords partagés, ponts) : écartés.
+            if (std::fabs(cross(b - a, c - a)) < 1e-7f) continue;
+            Face nf;
+            nf.verts = {findOrAdd(a), findOrAdd(b), findOrAdd(c)};
+            nf.color = f.color;
+            nf.hasColor = f.hasColor;
+            newFaces.push_back(std::move(nf));
+        }
+    }
+
+    if (!changed) return false;
+    vertices.swap(newVerts);
+    faces.swap(newFaces);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Arêtes
 // ---------------------------------------------------------------------------

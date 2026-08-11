@@ -78,6 +78,12 @@ public:
     // le polygone est invalide ou dégénéré (aire nulle, auto-sécant…).
     int addTriangulatedFace(const std::vector<int>& verts);
     bool removeFace(int index);
+    // Découpe le plan avec le polygone fermé `cut` (boucle simple, sens
+    // quelconque, concave autorisée) : les faces partiellement recouvertes sont
+    // recoupées (la partie restante conserve la couleur), celles entièrement
+    // dans la zone découpée sont supprimées, les autres restent intactes.
+    // Retourne false si `cut` ne touche aucune face (rien n'a changé).
+    bool cutPolygon(const std::vector<Vec2>& cut);
 
     // --- Arêtes (dérivées des faces) ---
     using Edge = std::pair<int, int>;

@@ -53,6 +53,7 @@ const char* toolName(Tool t) {
         case Tool::Star: return "étoile";
         case Tool::Ring: return "anneau";
         case Tool::Crown: return "couronne";
+        case Tool::Cut: return "découpe";
         default: return "?";
     }
 }
@@ -409,6 +410,10 @@ void App::update(float dt) {
 
     // --- Clic droit : sélection / déplacement de la sélection ---
     if (io.MouseClicked[1]) {
+        if (tool == Tool::Cut) {
+            applyCut();  // clic droit : ferme la découpe et l'applique
+            return;
+        }
         if (measureActive) {
             toggleMeasure();  // clic droit : désarme l'outil mesure
             return;
@@ -488,6 +493,21 @@ void App::update(float dt) {
 
     // --- Clic gauche ---
     if (io.MouseClicked[0]) {
+        if (tool == Tool::Cut) {
+            // Sommet du polygone de découpe ; un clic près du 1er point ferme
+            // et découpe (équivalent au clic droit / Entrée).
+            const Vec2 w = snappedPoint(mouseWorld);
+            const float closeTol = 14.0f / std::max(camera.zoom, 1e-3f);
+            if (cutPts.size() >= 3 && distance(w, cutPts.front()) < closeTol) {
+                applyCut();
+            } else {
+                cutPts.push_back(w);
+                setStatus("Découpe : " + std::to_string(cutPts.size()) +
+                          " point(s) — clic droit ou Entrée : découper · Retour "
+                          "arrière : retirer le dernier point");
+            }
+            return;
+        }
         // Outil mesure : les clics posent le 1er puis le 2e point (outil
         // Sélection uniquement — une forme armée garde la priorité).
         if (measureActive && tool == Tool::Select && drag_.kind == DragKind::None) {
@@ -1174,6 +1194,7 @@ void App::addTriangleBuild(const Vec2& world) {
 // ---------------------------------------------------------------------------
 void App::startShapeTool(Tool t) {
     tool = t;
+    cutPts.clear();  // une forme remplace la découpe en cours
     drag_.kind = DragKind::None;
     drag_.shapeStage = 0;
     const bool threeClicks = t == Tool::Star || t == Tool::Ring || t == Tool::Crown;
@@ -1181,6 +1202,57 @@ void App::startShapeTool(Tool t) {
               "déplacez la souris, " + std::string(threeClicks ? "3e" : "2e") +
               " clic : valider");
     logMsg("Forme « " + std::string(toolName(t)) + " » armée");
+}
+
+void App::toggleCutTool() {
+    if (tool == Tool::Cut) {
+        tool = Tool::Select;
+        cutPts.clear();
+        setStatus("Outil découpe désarmé");
+    } else {
+        if (isShapeTool(tool)) cancelShapeTrace();  // la forme en cours cède la place
+        tool = Tool::Cut;
+        cutPts.clear();
+        setStatus("Découpe armée — clics gauches : sommets du polygone · clic droit ou "
+                  "Entrée : découper · Retour arrière : dernier point · Échap : annuler (D)");
+        logMsg("Outil découpe armé");
+    }
+}
+
+void App::applyCut() {
+    if (tool != Tool::Cut) return;
+    if (cutPts.size() < 3) {
+        setStatus("Découpe : il faut au moins 3 points");
+        return;
+    }
+    // Calcule le résultat sur une copie : on ne pousse un undo que si la
+    // découpe touche réellement des faces.
+    Mesh2D copy = scene.activePlane();
+    if (!copy.cutPolygon(cutPts)) {
+        setStatus("La découpe ne touche aucune face du plan actif");
+        cutPts.clear();
+        tool = Tool::Select;
+        return;
+    }
+    pushUndo();
+    scene.activePlane() = std::move(copy);
+    const int nv = (int)scene.activePlane().vertices.size();
+    const int nf = (int)scene.activePlane().faces.size();
+    cutPts.clear();
+    tool = Tool::Select;
+    const std::string msg = "Découpe appliquée — " + std::to_string(nv) + " sommets, " +
+                            std::to_string(nf) + " faces";
+    setStatus(msg);
+    logMsg(msg);
+}
+
+void App::removeLastCutPoint() {
+    if (tool != Tool::Cut || cutPts.empty()) return;
+    cutPts.pop_back();
+    setStatus(cutPts.empty()
+                  ? "Découpe : plus aucun point — Échap désarme l'outil"
+                  : "Découpe : " + std::to_string(cutPts.size()) +
+                        " point(s) — Retour arrière : retirer le dernier");
 }
 
 void App::advanceShapeClick(const Vec2& world) {
@@ -2042,6 +2114,16 @@ void App::onEscape() {
         setStatus("Forme désarmée");
         return;
     }
+    if (tool == Tool::Cut) {
+        if (!cutPts.empty()) {
+            cutPts.clear();
+            setStatus("Découpe annulée — Échap désarme l'outil");
+        } else {
+            tool = Tool::Select;
+            setStatus("Outil découpe désarmé");
+        }
+        return;
+    }
     if (isShapeTool(tool)) {
         tool = Tool::Select;
         setStatus("Forme désarmée");
@@ -2495,6 +2577,16 @@ void App::setToast(const std::string& msg, float secs) {
 // phase suivante et reste affiché. Il n'est rafraîchi que lorsque le message
 // change ou que le toast a expiré, pour éviter un rafraîchissement continu.
 void App::updateHoverHelp(const Vec2& mouseWorld) {
+    // Outil découpe : guide la phase du tracé.
+    if (tool == Tool::Cut) {
+        setToast(cutPts.empty()
+                     ? "Clic gauche : 1er sommet du polygone de découpe"
+                     : "Clic gauche : sommet suivant (re-clic près du 1er point : fermer "
+                       "et découper) · clic droit / Entrée : découper · Retour arrière : "
+                       "dernier point",
+                 0.5f);
+        return;
+    }
     // Construction d'une forme prédéfinie (4.2) : guide la phase suivante.
     if (drag_.kind == DragKind::Shape) {
         const char* msg = nullptr;
@@ -2920,6 +3012,10 @@ void App::drawCircleLines(const Vec2& c, float radPx, const Color& col, int segs
 }
 
 void App::drawDragPreview() {
+    if (tool == Tool::Cut && !cutPts.empty()) {
+        drawCutPreview();
+        return;
+    }
     if (drag_.kind == DragKind::Shape) {
         drawShapeOutline();
         return;
@@ -2941,6 +3037,44 @@ void App::drawDragPreview() {
         renderer.drawLines(segs, kPreview);
         renderer.drawPoints({cur}, 6.0f, kPreview);
     }
+}
+
+// Aperçu de l'outil découpe : le polygone en cours (contour cyan + remplissage
+// translucide), la ligne de fermeture vers le curseur et les points posés.
+void App::drawCutPreview() {
+    const ImGuiIO& io = ImGui::GetIO();
+    const Vec2 ms{io.MousePos.x - viewportPos.x, io.MousePos.y - viewportPos.y};
+    const Vec2 mw = camera.screenToWorld(ms, viewportVec2());
+    const Vec2 cur = snappedPoint(mw);
+
+    std::vector<Vec2> poly = cutPts;
+    poly.push_back(cur);
+
+    // Contour : segments consécutifs + fermeture vers le 1er point.
+    std::vector<Vec2> segs;
+    segs.reserve(poly.size() * 2 + 2);
+    for (size_t i = 0; i + 1 < poly.size(); ++i) {
+        segs.push_back(poly[i]);
+        segs.push_back(poly[i + 1]);
+    }
+    if (cutPts.size() >= 2) {
+        segs.push_back(poly.back());
+        segs.push_back(poly.front());
+    }
+    renderer.drawLines(segs, kPreview);
+
+    // Remplissage translucide du polygone (quand il est fermable).
+    if (poly.size() >= 3) {
+        std::vector<int> tris;
+        if (triangulatePolygon(poly, tris)) {
+            std::vector<Vec2> fill;
+            fill.reserve(tris.size());
+            for (int k : tris) fill.push_back(poly[k]);
+            renderer.drawTriangles(fill, kPreviewFill);
+        }
+    }
+    renderer.drawPoints(cutPts, 6.0f, kPreview);
+    renderer.drawPoints({cur}, 6.0f, kVertHover);
 }
 
 // Aperçu du tracé de forme : la forme est VISIBLE (remplissage cyan

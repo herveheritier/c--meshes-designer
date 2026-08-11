@@ -16,9 +16,9 @@ namespace mesh {
 // --- Modes ---
 // Cible d'édition : sommet / segment / triangle (4.4).
 enum class SelMode { Vertex, Edge, Face };
-// Outils : sélection + formes prédéfinies (4.2).
-enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown };
-inline bool isShapeTool(Tool t) { return t != Tool::Select; }
+// Outils : sélection + formes prédéfinies (4.2) + découpe (polygone soustrait).
+enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown, Cut };
+inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut; }
 
 enum class ReticleState { Off, Simple, Symmetric };
 enum class PreviewMode { Off, Simple, Planes };
@@ -96,6 +96,14 @@ public:
     // --- Formes prédéfinies ---
     int circleSides = 16;               // côtés du cercle/anneau/étoile (molette, mémorisé)
     int crownInnerSides = 8;            // côtés INTÉRIEURS de la couronne (molette+Maj, mémorisé)
+
+    // --- Outil découpe (polygone soustrait au plan actif) ---
+    std::vector<Vec2> cutPts;           // sommets du polygone de découpe en cours
+    bool isCutArmed() const { return tool == Tool::Cut; }
+    bool isCutTracing() const { return tool == Tool::Cut && !cutPts.empty(); }
+    void toggleCutTool();               // arme / désarme l'outil découpe (D)
+    void applyCut();                    // ferme le polygone et soustrait (Entrée / clic droit)
+    void removeLastCutPoint();          // Retour arrière pendant le tracé
 
     // --- Outil mesure ---
     bool measureActive = false;
@@ -380,6 +388,7 @@ private:
     void drawMeshGeometry();
     void drawMeasureVisual();
     void drawDragPreview();
+    void drawCutPreview();
     void drawShapeOutline();
     void drawMergeVisuals();
     void drawCircleLines(const Vec2& c, float radPx, const Color& col, int segs);

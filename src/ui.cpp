@@ -315,8 +315,13 @@ void handleShortcuts(App& app) {
     if (ImGui::IsKeyPressed(ImGuiKey_Slash)) app.dlgHelpOpen = !app.dlgHelpOpen;
 
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
-        if (app.isShapeTracing()) app.cancelShapeTrace();
+        if (app.isCutTracing()) app.removeLastCutPoint();
+        else if (app.isShapeTracing()) app.cancelShapeTrace();
         else app.deleteSelection();
+    }
+    // Entrée : applique la découpe tracée (outil découpe armé).
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+        if (app.isCutArmed()) app.applyCut();
     }
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
         app.dlgResetOpen = true;
@@ -406,6 +411,10 @@ void handleShortcuts(App& app) {
     toggleShape(Tool::Star, ImGuiKey_E, "étoile");
     toggleShape(Tool::Ring, ImGuiKey_A, "anneau");
     toggleShape(Tool::Crown, ImGuiKey_O, "couronne");
+
+    // Outil découpe (D) : polygone soustrait au plan actif.
+    if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_D))
+        app.toggleCutTool();
 
     // Rotation précise : saisie d'un angle exact (Alt+R).
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R))
@@ -678,9 +687,9 @@ void toolbar(App& app) {
             app.duplicateSelection();
     }
 
-    // --- Paquet Outils : peinture, aligner, rotation, échelle, formes ---
+    // --- Paquet Outils : peinture, aligner, rotation, échelle, découpe, formes ---
     {
-        placePack(packW({bw, bw, bw, bw, bw}));
+        placePack(packW({bw, bw, bw, bw, bw, bw}));
         if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
                         app.paletteOpen, kGreen, false))
             app.paletteOpen = !app.paletteOpen;
@@ -696,6 +705,13 @@ void toolbar(App& app) {
         if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
                         app.dlgScaleOpen, kGreen, false))
             app.dlgScaleOpen = !app.dlgScaleOpen;
+        ImGui::SameLine();
+        if (toolBtnIcon("shape-cut",
+                        "Découper le plan avec un polygone (D) — clics gauches : "
+                        "sommets du polygone · clic droit ou Entrée : découper "
+                        "(soustraction) · Retour arrière : retirer le dernier point",
+                        app.isCutArmed(), kGreen, false))
+            app.toggleCutTool();
         ImGui::SameLine();
         if (toolBtnIcon("shapes",
                         "Formes prédéfinies — clic : menu contextuel "
@@ -1513,7 +1529,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Ctrl+0 : zoom 100 %% recentré");
         ImGui::BulletText("G : grille · Y : réticule · F : compteur de redessins · P : prévisualiser");
         ImGui::BulletText("Accueil : tout afficher · Ctrl+F : cadrer la sélection (zoom automatique)");
-        ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau · O couronne");
+        ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau · O couronne · D découpe (polygone soustrait)");
         ImGui::BulletText("Ctrl+D : dupliquer la sélection · Ctrl+A : tout sélectionner · Ctrl+I : inverser la sélection");
         ImGui::BulletText("M / Maj+M : miroir X / Y de la sélection · Alt+S : mise à l'échelle précise (facteur)");
         ImGui::BulletText("Ctrl+M : outil mesure (2 clics : distance au HUD) · Alt+D : dupliquer le plan actif");
