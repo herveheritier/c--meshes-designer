@@ -242,6 +242,73 @@ cible** qui déterminent ce que le clic vise et ce que la suppression enlève :
 - Les **triangles partiels** (1 ou 2 sommets seulement, en cours de construction) peuvent exister en mémoire mais ne sont pas enregistrés (voir 12.3).
 - Des **points superposés** (mêmes coordonnées, typiquement après l'import de scènes comportant des doublons) sont tolérés mais signalés (voir 5.5).
 
+### 4.6 Découpe et polygone
+
+Deux outils complémentaires manipulent des polygones tracés librement au canvas :
+
+- **Découpe** (bouton « Découper », touche `D`) : trace un polygone de
+  soustraction — les faces du plan actif qui chevauchent le polygone sont
+  découpées, créant un « trou » ou des entailles ; le polygone peut
+  **déborder du plan actif** (entaille de coin, découpe traversant une
+  arête) : seule la partie chevauchante est retirée. Les triangles du
+  résultat sont **répartis** comme pour le polygone (meilleure oreille) —
+  une découpe ne fabrique jamais d'éventail — et le résultat reste
+  **entièrement triangulé** : chaque pièce issue de la soustraction est un
+  triangle (voir 4.7). L'outil **reste armé après chaque découpe** :
+  plusieurs découpes peuvent **s'enchaîner** — elles ne forment qu'**une
+  seule étape annulable** (Ctrl+Z les retire toutes d'un coup) jusqu'à
+  **Échap** ou au bouton, qui terminent la chaîne ;
+- **Polygone** (bouton « Polygone », touche `U`) : trace un polygone libre puis
+  le **triangule automatiquement** dans le plan actif — il ajoute de la
+  géométrie (contrairement à la découpe qui en retire). Les triangles sont
+  répartis en **zigzag** (meilleure oreille, sommet le plus équilatéral, en
+  commençant par le milieu du tracé) : aucun sommet ne se retrouve dans tous
+  les triangles — sur un polygone régulier, chaque sommet ne participe qu'à
+  ~3 triangles, au lieu d'un éventail où tous partageaient le même sommet.
+
+Pour les deux outils :
+
+- **Armer** : cliquer sur le bouton (ou appuyer sur la touche dédiée) ;
+- **Tracer** : clics gauches au canvas — chaque clic pose un sommet ;
+- **Fermer** : re-clic près du 1ᵉʳ point, **clic droit** ou **Entrée** —
+  valide et applique l'opération ;
+- **Retour arrière** : retire le dernier point posé ;
+- **Échap** : annule le tracé en cours (1ᵉʳ Échap) puis désarme l'outil
+  (2ᵉ Échap).
+
+L'aperçu en direct montre le contour et le remplissage translucide — **cyan**
+pour la découpe, **vert** pour le polygone. Les opérations sont **annulables**
+(une étape par polygone).
+
+### 4.7 Résultat entièrement triangulé
+
+Après une découpe, **toutes les nouvelles pièces sont des triangles** : le
+résultat de la soustraction reste tel que produit par la triangulation — les
+arêtes internes sont **conservées**, aucune pièce n'est regroupée en
+polygone.
+
+- une **entaille** de coin devient un assemblage de **4 triangles** (le « L »
+  à 6 sommets) ; une entaille d'arête devient un octogone de **6 triangles** ;
+- un **trou** intérieur n'est **jamais comblé** : la zone découpée est bordée
+  d'un anneau de **8 triangles**, mais aucun triangle n'englobe la zone
+  découpée ;
+- une découpe qui **sépare** une face en plusieurs morceaux produit autant
+  d'assemblages de triangles qu'il y a de morceaux ;
+- les faces **non touchées** par la découpe restent **intactes** (une face
+  voisine n'est pas triangulée d'office) et restent séparées des pièces
+  découpées ;
+- la **couleur** de la face découpée est **conservée** par toutes ses pièces.
+
+L'**enchaînement** des découpes : une fois une découpe appliquée, l'outil
+**reste armé** et l'on peut immédiatement tracer une autre découpe (sur le
+même plan, éventuellement dans un autre coin de la figure). Toutes les
+découpes appliquées entre deux armements / désarmements constituent **une
+seule étape annulable** : un Ctrl+Z retire toute la chaîne. **Échap** (sans
+point en cours), le **bouton Découper** ou un autre outil terminent la chaîne
+(la découpe suivante démarrera alors une nouvelle étape). Une découpe qui ne
+touche aucune face ne met pas fin à la chaîne : elle est simplement ignorée
+et l'on peut retracer.
+
 ---
 
 ## 5. Sélection et manipulation
@@ -495,20 +562,20 @@ Le popup du bouton permet de :
 - régler l'**opacité** (curseur exprimé de 0 à 100 % avec un incrément de 1,
   ou **molette sur le bouton Calque** par pas de 5 % — une seule étape
   annulable par salve) et la **visibilité** ;
-- **manipuler le calque au canvas** : trois outils armables (comme le mode
-  Scène, clic droit ou Échap pour désarmer) —
-  - **Déplacer** : clic gauche + glisser ;
-  - **Pivoter** : clic gauche + glisser (le point saisi suit le curseur autour
-    du centre) ;
-  - **Échelle** : **8 poignées** apparaissent sur le calque — les milieux des
-    arêtes **gauche/droite = axe X** (largeur seule), **haut/bas = axe Y**
-    (hauteur seule), et les **coins = les deux axes** à la fois, en
-    **préservant le rapport x/y** du calque (un seul facteur le long de la
-    diagonale, comme un zoom centré sur le coin opposé — pas de distorsion) ;
-    la saisie d'une poignée redimensionne en gardant **fixe l'arête / le coin
-    opposé** (rotation conservée). Saisie ailleurs : glisser vertical = taille
-    (proportionnel), horizontal = largeur (déformation), Maj+horizontal =
-    hauteur ;
+- **manipuler le calque au canvas** : un **anneau de poignées unifié**
+  (un seul bouton « Manipuler » au lieu de trois) — une fois le mode armé,
+  l'anneau suit le curseur puis s'ancre au premier clic gauche. L'anneau
+  (rayon 60 px écran) contient :
+  - **12 poignées sur l'anneau** : **cyan** = échelle en X (largeur seule),
+    **ambre** = échelle en Y (hauteur seule), **blanc** = échelle uniforme
+    (rapport x/y conservé), **rouge** = symétries (clic instantané : miroir
+    horizontal, vertical ou les deux) ;
+  - **4 flèches vertes** à l'extérieur de l'anneau : déplacement contraint
+    en X (gauche/droite) ou en Y (haut/bas) ;
+  - **centre** (disque) : déplacement libre du calque ;
+  - **anneau lui-même** : rotation (glisser autour du centre) ;
+  - clic droit ou Échap désarme le mode ; un clic sans glisser ne crée
+    pas d'étape d'annulation ;
 - **Ajuster à la vue** : recentre et redimensionne le calque à ~la moitié de la
   vue ;
 - **Retirer le calque**.

@@ -70,6 +70,56 @@ static void testTriangulation() {
         std::vector<int> t;
         CHECK(!triangulatePolygon(bad, t));
     }
+    // Octogone régulier (convexe) : la « meilleure oreille » répartit les
+    // triangles — AUCUN sommet ne doit apparaître dans tous les triangles
+    // (l'ancien éventail de l'outil polygone faisait partager le sommet 0 par
+    // tous). L'aire totale est conservée.
+    {
+        std::vector<Vec2> oct;
+        for (int i = 0; i < 8; ++i) {
+            const float a = (float)i * 2.0f * 3.14159265f / 8.0f;
+            oct.push_back({std::cos(a), std::sin(a)});
+        }
+        std::vector<int> t;
+        CHECK(triangulatePolygon(oct, t));
+        CHECK((int)t.size() == 18);  // 6 triangles
+        std::vector<int> freq(8, 0);
+        double area = 0.0;
+        for (size_t i = 0; i + 2 < t.size(); i += 3) {
+            ++freq[t[i]];
+            ++freq[t[i + 1]];
+            ++freq[t[i + 2]];
+            const Vec2& a = oct[t[i]];
+            const Vec2& b = oct[t[i + 1]];
+            const Vec2& c = oct[t[i + 2]];
+            area += std::fabs(cross(b - a, c - a)) * 0.5;
+        }
+        const int maxFreq = *std::max_element(freq.begin(), freq.end());
+        CHECK(maxFreq < 6);         // pas d'éventail : aucun sommet dans les 6 triangles
+        CHECK(maxFreq <= 3);        // bien réparti (équilatéralité maximale)
+        CHECK(std::fabs(area - (2.0 * std::sqrt(2.0))) < 1e-3);  // aire octogone régulier
+    }
+    // Rectangle très allongé (irrégulier) : la « meilleure oreille » reste
+    // propre — aucun triangle d'aire nulle, aire totale conservée (le départage
+    // « milieu de boucle » ne doit pas dégrader les formes non symétriques).
+    {
+        std::vector<Vec2> rect = {{-6, -1}, {6, -1}, {6, 1}, {-6, 1}};
+        std::vector<int> t;
+        CHECK(triangulatePolygon(rect, t));
+        CHECK((int)t.size() == 6);  // 2 triangles
+        double area = 0.0;
+        double minArea = 1e18;
+        for (size_t i = 0; i + 2 < t.size(); i += 3) {
+            const Vec2& a = rect[t[i]];
+            const Vec2& b = rect[t[i + 1]];
+            const Vec2& c = rect[t[i + 2]];
+            const double a2 = std::fabs(cross(b - a, c - a)) * 0.5;
+            area += a2;
+            minArea = std::min(minArea, a2);
+        }
+        CHECK(std::fabs(area - 24.0) < 1e-3);   // 12 × 2
+        CHECK(minArea > 1e-3);                   // aucun triangle dégénéré
+    }
     // pointInTriangle
     CHECK(pointInTriangle({0.25f, 0.25f}, {0, 0}, {1, 0}, {0, 1}));
     CHECK(!pointInTriangle({1, 1}, {0, 0}, {1, 0}, {0, 1}));
@@ -309,6 +359,41 @@ static void testCutPolygons() {
         CHECK(tris.empty());
     }
 
+    // Entaille de coin débordant du sujet : le carré 8×8 moins son coin
+    // 5×5 (la découpe dépasse du bord) doit donner le « L » d'aire 39.
+    // Régression : les arêtes internes partagées par les triangles de la
+    // découpe n'étaient pas annulées et le tracé des boucles se perdait — le
+    // résultat était VIDé.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(subtractPolygon({{0, 0}, {8, 0}, {8, 8}, {0, 8}},
+                              {{-1, -1}, {5, -1}, {5, 5}, {-1, 5}}, pts, tris));
+        checkTris(pts, tris, 39.0);
+    }
+    // Entaille depuis une arête (la découpe partage le bord du sujet) : aire 56.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(subtractPolygon({{0, 0}, {8, 0}, {8, 8}, {0, 8}},
+                              {{3, 0}, {5, 0}, {5, 4}, {3, 4}}, pts, tris));
+        checkTris(pts, tris, 56.0);
+    }
+    // Anneau 8×8 percé d'un carré 4×4 centré : triangles répartis (aucun
+    // sommet dans tous les triangles) — la « meilleure oreille » s'applique
+    // aussi aux découpes, pas seulement à l'outil polygone.
+    {
+        std::vector<Vec2> pts;
+        std::vector<int> tris;
+        CHECK(triangulatePolygonHoles({{0, 0}, {8, 0}, {8, 8}, {0, 8}},
+                                      {{{2, 2}, {6, 2}, {6, 6}, {2, 6}}}, pts, tris));
+        checkTris(pts, tris, 48.0);
+        std::vector<int> freq(pts.size(), 0);
+        for (int v : tris) ++freq[v];
+        const int maxFreq = *std::max_element(freq.begin(), freq.end());
+        CHECK(maxFreq <= 4);  // 8 triangles sur 8 sommets : ~3 en moyenne, jamais tous
+    }
+
     // Triangulation directe avec trous.
     {
         std::vector<Vec2> pts;
@@ -358,6 +443,220 @@ static void testCutPolygons() {
         CHECK(!m2.cutPolygon({{50, 50}, {51, 50}, {51, 51}, {50, 51}}));
         CHECK((int)m2.faces.size() == (int)m.faces.size());
         CHECK((int)m2.vertices.size() == (int)m.vertices.size());
+    }
+
+    // Découpe de coin DÉBORDANT de la face (chemin réel de l'outil découpe) :
+    // le carré 8×8 moins son coin 5×5 (le coin découpé sort de la face) doit
+    // laisser un « L » d'aire 39, avec la couleur conservée.
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({8, 0});
+        const int c = m.addVertex({8, 8});
+        const int d = m.addVertex({0, 8});
+        const int q = m.addFace({a, b, c, d});
+        m.faces[q].color = {0.2f, 0.5f, 0.9f, 0.6f};
+        m.faces[q].hasColor = true;
+        CHECK(m.cutPolygon({{-1, -1}, {5, -1}, {5, 5}, {-1, 5}}));
+        std::vector<int> tris;
+        m.triangulated(tris);
+        double area = 0.0;
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+            const Vec2& x = m.vertices[tris[i]];
+            const Vec2& y = m.vertices[tris[i + 1]];
+            const Vec2& z = m.vertices[tris[i + 2]];
+            area += std::fabs(area2(x, y, z)) * 0.5;
+        }
+        CHECK(std::fabs(area - 39.0) < 1e-3);
+        // La couleur de la face découpée est conservée sur les nouveaux triangles.
+        bool hasColor = false;
+        for (const Face& fc : m.faces)
+            if (fc.hasColor && fc.color.r == 0.2f) hasColor = true;
+        CHECK(hasColor);
+    }
+}
+
+// Résultat d'une découpe entièrement triangulé : chaque pièce issue de la
+// soustraction est un triangle (les arêtes internes de la triangulation sont
+// conservées, aucun réassemblage) — une entaille devient un assemblage de
+// triangles, un trou n'est jamais comblé, les faces non touchées restent
+// intactes et la couleur de la face découpée est conservée.
+static void testCutTriangulated() {
+    std::printf("[découpe triangulée]\n");
+
+    const auto faceArea = [](const Mesh2D& m, const Face& f) {
+        double s = 0;
+        for (size_t i = 0; i < f.verts.size(); ++i) {
+            const Vec2& a = m.vertices[(size_t)f.verts[i]];
+            const Vec2& b = m.vertices[(size_t)f.verts[(i + 1) % f.verts.size()]];
+            s += (double)a.x * b.y - (double)a.y * b.x;
+        }
+        return std::fabs(s) * 0.5;
+    };
+    const auto totalArea = [&](const Mesh2D& m) {
+        double s = 0;
+        for (const Face& f : m.faces) s += faceArea(m, f);
+        return s;
+    };
+    const auto square = [](Mesh2D& m, float x0, float y0, float x1, float y1) {
+        const int a = m.addVertex({x0, y0});
+        const int b = m.addVertex({x1, y0});
+        const int c = m.addVertex({x1, y1});
+        const int d = m.addVertex({x0, y1});
+        return m.addFace({a, b, c, d});
+    };
+    const auto allTriangles = [](const Mesh2D& m) {
+        for (const Face& f : m.faces)
+            if ((int)f.verts.size() != 3) return false;
+        return true;
+    };
+
+    // Entaille de coin : le « L » (6 sommets) devient 4 triangles, aire 39.
+    {
+        Mesh2D m;
+        square(m, 0, 0, 8, 8);
+        CHECK(m.cutPolygon({{-1, -1}, {5, -1}, {5, 5}, {-1, 5}}));
+        CHECK(allTriangles(m));
+        CHECK((int)m.faces.size() == 4);  // L à 6 sommets → 4 triangles
+        CHECK(std::fabs(totalArea(m) - 39.0) < 1e-3);
+    }
+    // Entaille depuis une arête : l'octogone (8 sommets) devient 6 triangles.
+    {
+        Mesh2D m;
+        square(m, 0, 0, 8, 8);
+        CHECK(m.cutPolygon({{3, 0}, {5, 0}, {5, 4}, {3, 4}}));
+        CHECK(allTriangles(m));
+        CHECK((int)m.faces.size() == 6);  // octogone à 8 sommets → 6 triangles
+        CHECK(std::fabs(totalArea(m) - 56.0) < 1e-3);
+    }
+    // Trou intérieur : anneau de 8 triangles, le trou n'est JAMAIS comblé —
+    // aucun triangle n'englobe un point du trou.
+    {
+        Mesh2D m;
+        square(m, 0, 0, 8, 8);
+        CHECK(m.cutPolygon({{2, 2}, {6, 2}, {6, 6}, {2, 6}}));
+        CHECK(allTriangles(m));
+        CHECK((int)m.faces.size() == 8);  // 4 sommets ext. + 4 int. → 8 triangles
+        for (const Face& f : m.faces) {
+            std::vector<Vec2> pts;
+            pts.reserve(f.verts.size());
+            for (int v : f.verts) pts.push_back(m.vertices[(size_t)v]);
+            CHECK(m.validFace(f.verts));
+            // Centre du trou : jamais englobé (un triangle ne peut couvrir une
+            // zone découpée — les coins du trou restent sur la frontière des
+            // triangles de l'anneau, où pointInPolygon répond « bord »).
+            CHECK(!pointInPolygon({4, 4}, pts));
+        }
+        CHECK(std::fabs(totalArea(m) - 48.0) < 1e-3);
+    }
+    // Découpe qui sépare une face en deux morceaux disjoints : chaque moitié
+    // est triangulée (2 rectangles → 4 triangles), aire conservée.
+    {
+        Mesh2D m;
+        square(m, 0, 0, 8, 8);
+        CHECK(m.cutPolygon({{3, -1}, {5, -1}, {5, 9}, {3, 9}}));
+        CHECK(allTriangles(m));
+        CHECK((int)m.faces.size() == 4);  // 2 rectangles → 4 triangles
+        CHECK(std::fabs(totalArea(m) - 48.0) < 1e-3);
+    }
+    // Couleur conservée : toutes les pièces de la face découpée gardent la
+    // couleur d'origine (aucune perte pendant la triangulation).
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({4, 0});
+        const int c = m.addVertex({4, 4});
+        const int d = m.addVertex({0, 4});
+        const int q = m.addFace({a, b, c, d});
+        m.faces[(size_t)q].color = {0.2f, 0.5f, 0.9f, 0.6f};
+        m.faces[(size_t)q].hasColor = true;
+        CHECK(m.cutPolygon({{1, 1}, {3, 1}, {3, 3}, {1, 3}}));  // trou dans la face
+        CHECK(allTriangles(m));
+        for (const Face& fc : m.faces)
+            CHECK(fc.hasColor && fc.color.r == 0.2f);  // la couleur survit à la découpe
+        CHECK(std::fabs(totalArea(m) - 12.0) < 1e-3);
+    }
+    // Deux faces voisines de couleurs différentes : seule la face découpée
+    // produit des triangles ; la voisine intacte reste un quad (une face non
+    // touchée n'est jamais triangulée d'office), et aucune face ne mélange
+    // les couleurs.
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({4, 0});
+        const int c = m.addVertex({4, 4});
+        const int d = m.addVertex({0, 4});
+        const int q = m.addFace({a, b, c, d});
+        m.faces[(size_t)q].color = {1.0f, 0.0f, 0.0f, 1.0f};
+        m.faces[(size_t)q].hasColor = true;
+        const int e = m.addVertex({8, 0});
+        const int f = m.addVertex({8, 4});
+        const int q2 = m.addFace({b, e, f, c});  // partage l'arête b-c avec la face A
+        m.faces[(size_t)q2].color = {0.0f, 0.0f, 1.0f, 1.0f};
+        m.faces[(size_t)q2].hasColor = true;
+        CHECK(m.cutPolygon({{1, 1}, {3, 1}, {3, 3}, {1, 3}}));  // trou dans la face A
+        int blue = 0;
+        for (const Face& fc : m.faces) {
+            const bool red = fc.hasColor && fc.color.r == 1.0f;
+            const bool bl = fc.hasColor && fc.color.b == 1.0f;
+            CHECK(red != bl);  // rouge ou bleu, jamais les deux
+            if (bl) ++blue;
+        }
+        CHECK(blue == 1);  // la face bleue voisine reste unique
+        for (const Face& fc : m.faces) {
+            if (fc.hasColor && fc.color.b == 1.0f)
+                CHECK((int)fc.verts.size() == 4);  // intacte : quad conservé
+            else
+                CHECK((int)fc.verts.size() == 3);  // découpée : triangles
+        }
+        CHECK(std::fabs(totalArea(m) - 28.0) < 1e-3);  // 16 + 16 − 4
+    }
+    // Découpe à cheval sur la couture de deux faces de MÊME couleur : toutes
+    // les pièces sont des triangles et aucune face ne contient des sommets
+    // des deux côtés de la couture x = 4 (les pièces de chaque face restent
+    // séparées).
+    {
+        Mesh2D m;
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({4, 0});
+        const int c = m.addVertex({4, 4});
+        const int d = m.addVertex({0, 4});
+        const int q = m.addFace({a, b, c, d});
+        const int e = m.addVertex({8, 0});
+        const int f = m.addVertex({8, 4});
+        const int q2 = m.addFace({b, e, f, c});  // partage l'arête b-c, même couleur
+        for (const int fi : {q, q2}) {
+            m.faces[(size_t)fi].color = {0.9f, 0.2f, 0.2f, 1.0f};
+            m.faces[(size_t)fi].hasColor = true;
+        }
+        CHECK(m.cutPolygon({{2, 2}, {6, 2}, {6, 6}, {2, 6}}));  // trou à cheval
+        CHECK(allTriangles(m));
+        CHECK((int)m.faces.size() >= 2);  // jamais une seule face traversante
+        for (const Face& fc : m.faces) {
+            // Aucune face ne chevauche la couture : sommets d'un seul côté
+            // (x ≤ 4 ou x ≥ 4, avec une tolérance pour les points de coupe).
+            bool left = false, right = false;
+            for (int v : fc.verts) {
+                const float x = m.vertices[(size_t)v].x;
+                if (x < 4.0f - 1e-3f) left = true;
+                if (x > 4.0f + 1e-3f) right = true;
+            }
+            CHECK(!(left && right));
+        }
+        CHECK(std::fabs(totalArea(m) - 24.0) < 1e-3);  // 16 + 16 − 8 (moitié du trou par face)
+    }
+    // Aucun triangle dégénéré dans le résultat (chemin rendu / export).
+    {
+        Mesh2D m;
+        square(m, 0, 0, 8, 8);
+        CHECK(m.cutPolygon({{-1, -1}, {5, -1}, {5, 5}, {-1, 5}}));
+        for (const Face& f : m.faces) {
+            CHECK((int)f.verts.size() == 3);
+            const Vec2& a = m.vertices[(size_t)f.verts[0]];
+            const Vec2& b = m.vertices[(size_t)f.verts[1]];
+            const Vec2& c = m.vertices[(size_t)f.verts[2]];
+            CHECK(std::fabs(cross(b - a, c - a)) > 1e-7);  // pas de triangle dégénéré
+        }
     }
 }
 
@@ -691,6 +990,7 @@ static void testSpecFormats() {
         p.brushOpacity = 0.65f;
         p.circleSides = 12;
         p.edgePickTol = 14.0f;
+        p.vertexPickTol = 11.0f;
         p.locations = {"sceneA", "sceneB"};
         p.bgColor = {0.2f, 0.4f, 0.6f, 1.0f};
         p.sceneTool = 2;  // rotation
@@ -712,6 +1012,7 @@ static void testSpecFormats() {
         CHECK(back.brushOpacity == 0.65f);
         CHECK(back.circleSides == 12);
         CHECK(back.edgePickTol == 14.0f);
+        CHECK(back.vertexPickTol == 11.0f);
         CHECK(back.locations.size() == 2 && back.locations[1] == "sceneB");
         CHECK(back.bgColor.r == 0.2f && back.bgColor.g == 0.4f && back.bgColor.b == 0.6f);
         CHECK(back.sceneTool == 2);
@@ -838,7 +1139,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 75);  // toutes les icônes du dossier assets/ (1 ajoutée : pipette)
+    CHECK(n == 76);  // toutes les icônes du dossier assets/ (1 ajoutée : shape-polygon)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -1159,6 +1460,7 @@ int main() {
     testTriangulation();
     testCrownBand();
     testCutPolygons();
+    testCutTriangulated();
     testMeshOps();
     testFaceOrder();
     testRoundTrip();

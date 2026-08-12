@@ -323,12 +323,14 @@ void handleShortcuts(App& app) {
 
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
         if (app.isCutTracing()) app.removeLastCutPoint();
+        else if (app.isPolygonTracing()) app.removeLastPolygonPoint();
         else if (app.isShapeTracing()) app.cancelShapeTrace();
         else app.deleteSelection();
     }
     // Entrée : applique la découpe tracée (outil découpe armé).
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
         if (app.isCutArmed()) app.applyCut();
+        else if (app.isPolygonArmed()) app.applyPolygon();
     }
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
         app.dlgResetOpen = true;
@@ -427,6 +429,8 @@ void handleShortcuts(App& app) {
     // Outil découpe (D) : polygone soustrait au plan actif.
     if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_D))
         app.toggleCutTool();
+    if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_U))
+        app.togglePolygonTool();
 
     // Rotation précise : saisie d'un angle exact (Alt+R).
     if (io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R))
@@ -758,9 +762,18 @@ void toolbar(App& app) {
         if (toolBtnIcon("shape-cut",
                         "Découper le plan avec un polygone (D) — clics gauches : "
                         "sommets du polygone · clic droit ou Entrée : découper "
-                        "(soustraction) · Retour arrière : retirer le dernier point",
+                        "(soustraction) · l'outil reste armé : chaque découpe "
+                        "s'ajoute à la même étape annulable jusqu'à Échap / D · "
+                        "Retour arrière : retirer le dernier point",
                         app.isCutArmed(), kGreen, false))
             app.toggleCutTool();
+        ImGui::SameLine();
+        if (toolBtnIcon("shape-polygon",  // icône distincte pour éviter conflit ID ImGui
+                        "Tracer un polygone et le trianguler automatiquement (U) — "
+                        "clics gauches : sommets du polygone · clic droit ou Entrée : "
+                        "valider et créer les triangles · Retour arrière : dernier point",
+                        app.isPolygonArmed(), kGreen, false))
+            app.togglePolygonTool();
         ImGui::SameLine();
         if (toolBtnIcon("shapes",
                         "Formes prédéfinies — clic : menu contextuel "
@@ -1072,7 +1085,7 @@ void toolbar(App& app) {
         // Calque d'image de fond (7.7) : clic = popup (charger, opacité,
         // manipulation au canvas). Vert = outil de manipulation armé, ambre =
         // calque chargé mais non armé.
-        const bool layerArmed = app.layerTool != LayerTool::None;
+        const bool layerArmed = app.layerArmed;
         const bool layerLoaded = app.imageTex != 0;
         if (toolBtnIcon("layer",
                         layerArmed
@@ -1113,7 +1126,7 @@ void toolbar(App& app) {
                         false))
             app.dlgHelpOpen = !app.dlgHelpOpen;
         ImGui::SameLine();
-        if (toolBtnIcon("settings", "Réglages : distance de détection des segments",
+        if (toolBtnIcon("settings", "Réglages : distances de détection des sommets et des segments",
                         app.settingsOpen, kGreen, false))
             app.settingsOpen = !app.settingsOpen;
     }
@@ -1388,34 +1401,138 @@ void viewport(App& app) {
         dl->AddRect(a, b, IM_COL32(140, 190, 255, 220));
     }
 
-    // Poignées du mode Échelle du calque (7.7) : 8 poignées — milieux des
-    // arêtes gauche/droite = axe X (largeur), haut/bas = axe Y (hauteur), et
-    // coins = les deux axes. La poignée survolée est mise en évidence ; saisie
-    // sur une poignée = échelle ancrée sur l'arête / le coin opposé. Seulement
-    // si le calque est visible (le rayon de survol suit celui de la saisie).
-    if (app.layerTool == LayerTool::Scale && app.preview == PreviewMode::Off &&
+    // Anneau de manipulation unifié du calque (7.7).
+    // Hiérarchie par rayon : chaque type d'opération a sa propre zone.
+    //  - Centre (0-25px) : Déplacement libre (disque blanc)
+    //  - Anneau échelle (40px) : Carreaux X/Y (cyan/ambre) + diamants (blanc)
+    //  - Anneau rotation (55px) : Piste bleue avec graduations
+    //  - Flèches déplacement (70px) : Grands triangles verts directionnels
+    if (app.layerArmed && app.preview == PreviewMode::Off &&
         app.scene.image.path.size() > 0 && app.scene.image.visible) {
-        std::vector<Vec2> pts;
-        app.layerHandlePoints(pts);
+        const float kScaleR = 40.0f;   // rayon échelle
+        const float kRotR   = 55.0f;   // rayon rotation
+        const float kArrowR = 70.0f;   // rayon flèches déplacement
+        const Vec2 vps = app.viewportVec2();
         const ImVec2 mp = io.MousePos;
-        for (int i = 0; i < (int)pts.size(); ++i) {
-            const Vec2 sp = app.camera.worldToScreen(pts[i], app.viewportVec2());
-            const ImVec2 hp(pos.x + sp.x, pos.y + sp.y);
-            const bool hover = std::sqrt((mp.x - hp.x) * (mp.x - hp.x) +
-                                         (mp.y - hp.y) * (mp.y - hp.y)) < 12.0f;
-            // X (bords gauche/droit) cyan, Y (haut/bas) ambre, coins blancs.
-            ImU32 col;
-            if (i < 2)
-                col = hover ? IM_COL32(120, 235, 255, 255) : IM_COL32(120, 235, 255, 190);
-            else if (i < 4)
-                col = hover ? IM_COL32(255, 205, 120, 255) : IM_COL32(255, 205, 120, 190);
-            else
-                col = hover ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 190);
-            const float s = hover ? 7.0f : 5.5f;
-            dl->AddRectFilled(ImVec2(hp.x - s, hp.y - s), ImVec2(hp.x + s, hp.y + s), col);
-            if (hover)
-                dl->AddRect(ImVec2(hp.x - s - 2, hp.y - s - 2),
-                            ImVec2(hp.x + s + 2, hp.y + s + 2), IM_COL32(255, 255, 255, 120));
+        Vec2 centerScreen;
+        if (app.layerAnchored) {
+            const Vec2 sp = app.camera.worldToScreen(app.layerAnchor, vps);
+            centerScreen = {pos.x + sp.x, pos.y + sp.y};
+        } else {
+            centerScreen = {mp.x, mp.y};
+        }
+        const ImVec2 c(centerScreen.x, centerScreen.y);
+
+        // ---- Centre : disque MoveFree ----
+        {
+            const bool hover = std::sqrt((mp.x - c.x) * (mp.x - c.x) +
+                                         (mp.y - c.y) * (mp.y - c.y)) < 14.0f;
+            // Halo diffus autour du centre
+            dl->AddCircle(c, 22.0f, IM_COL32(200, 210, 230, 25), 0, 8.0f);
+            dl->AddCircle(c, 18.0f, IM_COL32(220, 230, 245, 40), 0, 4.0f);
+            const ImU32 col = hover ? IM_COL32(255, 255, 255, 240) : IM_COL32(255, 255, 255, 160);
+            dl->AddCircleFilled(c, hover ? 12.0f : 10.0f, col);
+            dl->AddCircle(c, 14.0f, IM_COL32(255, 255, 255, 60));
+            if (hover) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("Déplacer librement — clic + glisser");
+            }
+        }
+
+        // ---- Anneau rotation (55px) : piste avec graduations ----
+        {
+            // Halo lumineux : anneaux diffus dégradés pour lisibilité sur fond clair
+            dl->AddCircle(c, kRotR, IM_COL32(40, 140, 210, 20), 0, 16.0f);
+            dl->AddCircle(c, kRotR, IM_COL32(50, 160, 225, 35), 0, 10.0f);
+            dl->AddCircle(c, kRotR, IM_COL32(60, 170, 235, 55), 0, 6.0f);
+            // Anneau principal
+            dl->AddCircle(c, kRotR, IM_COL32(70, 180, 240, 140), 0, 2.5f);
+            dl->AddCircle(c, kRotR, IM_COL32(70, 180, 240, 60), 0, 1.0f);
+            // Graduations aux 4 coins
+            for (int i = 0; i < 4; ++i) {
+                const float rad = (45.0f + i * 90.0f) * kPiF / 180.0f;
+                const float r1 = kRotR - 5.0f, r2 = kRotR + 5.0f;
+                dl->AddLine(ImVec2(c.x + std::cos(rad) * r1, c.y + std::sin(rad) * r1),
+                            ImVec2(c.x + std::cos(rad) * r2, c.y + std::sin(rad) * r2),
+                            IM_COL32(70, 180, 240, 180), 2.0f);
+            }
+        }
+
+        // ---- Anneau échelle (40px) : carreaux X/Y + diamants ----
+        // Poignées cardinales : carreaux (ScaleX à l'horizontale, ScaleY à la verticale)
+        static const float kCardAngles[] = {0.0f, 90.0f, 180.0f, 270.0f};
+        for (int i = 0; i < 4; ++i) {
+            const float rad = kCardAngles[i] * kPiF / 180.0f;
+            const float px = c.x + std::cos(rad) * kScaleR;
+            const float py = c.y + std::sin(rad) * kScaleR;
+            const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
+                                         (mp.y - py) * (mp.y - py)) < 11.0f;
+            const bool isX = (i == 0 || i == 2);  // E/W = ScaleX
+            const ImU32 col = hover ? (isX ? IM_COL32(120, 235, 255, 255)
+                                           : IM_COL32(255, 205, 120, 255))
+                                    : (isX ? IM_COL32(120, 235, 255, 160)
+                                           : IM_COL32(255, 205, 120, 160));
+            const float hs = hover ? 7.5f : 6.0f;
+            // Carreau (petit carré)
+            dl->AddRectFilled(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs), col);
+            dl->AddRect(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs),
+                        IM_COL32(255, 255, 255, 100));
+            if (hover) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip(isX ? "Échelle largeur (X) — clic + glisser"
+                                      : "Échelle hauteur (Y) — clic + glisser");
+            }
+        }
+        // Poignées diagonales : diamants (ScaleBoth)
+        static const float kDiagAngles[] = {45.0f, 135.0f, 225.0f, 315.0f};
+        for (int i = 0; i < 4; ++i) {
+            const float rad = kDiagAngles[i] * kPiF / 180.0f;
+            const float px = c.x + std::cos(rad) * kScaleR;
+            const float py = c.y + std::sin(rad) * kScaleR;
+            const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
+                                         (mp.y - py) * (mp.y - py)) < 11.0f;
+            const ImU32 col = hover ? IM_COL32(255, 255, 255, 255)
+                                    : IM_COL32(255, 255, 255, 160);
+            const float hs = hover ? 6.5f : 5.0f;
+            // Diamant (carré tourné à 45°)
+            dl->AddQuadFilled(ImVec2(px, py - hs), ImVec2(px + hs, py),
+                              ImVec2(px, py + hs), ImVec2(px - hs, py), col);
+            dl->AddQuad(ImVec2(px, py - hs), ImVec2(px + hs, py),
+                        ImVec2(px, py + hs), ImVec2(px - hs, py),
+                        IM_COL32(255, 255, 255, 100));
+            if (hover) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("Échelle uniforme (X/Y conservé) — clic + glisser");
+            }
+        }
+
+        // ---- Flèches déplacement contraint (70px) : grands triangles verts ----
+        static const float kArrowAngles[] = {0.0f, 90.0f, 180.0f, 270.0f};
+        for (int i = 0; i < 4; ++i) {
+            const float rad = kArrowAngles[i] * kPiF / 180.0f;
+            const float cs = std::cos(rad), sn = std::sin(rad);
+            const float px = c.x + cs * kArrowR;
+            const float py = c.y + sn * kArrowR;
+            const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
+                                         (mp.y - py) * (mp.y - py)) < 14.0f;
+            const ImU32 col = hover ? IM_COL32(90, 240, 130, 255)
+                                    : IM_COL32(90, 240, 130, 170);
+            const float s = hover ? 9.0f : 7.0f;
+            // Grande flèche triangulaire pointant vers l'extérieur
+            dl->AddTriangleFilled(
+                ImVec2(px + cs * s * 2.5f, py + sn * s * 2.5f),
+                ImVec2(px - cs * s * 0.5f + sn * s, py - sn * s * 0.5f - cs * s),
+                ImVec2(px - cs * s * 0.5f - sn * s, py - sn * s * 0.5f + cs * s), col);
+            if (hover) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                dl->AddTriangle(
+                    ImVec2(px + cs * s * 2.5f, py + sn * s * 2.5f),
+                    ImVec2(px - cs * s * 0.5f + sn * s, py - sn * s * 0.5f - cs * s),
+                    ImVec2(px - cs * s * 0.5f - sn * s, py - sn * s * 0.5f + cs * s),
+                    IM_COL32(255, 255, 255, 130));
+                ImGui::SetTooltip(i == 0 || i == 2 ? "Déplacer horizontalement (X) — clic + glisser"
+                                                   : "Déplacer verticalement (Y) — clic + glisser");
+            }
         }
     }
 
@@ -1680,24 +1797,35 @@ void layerPopup(App& app) {
     ImGui::TextDisabled("%d × %d px · opacité %.0f %%", il.w, il.h, il.opacity * 100.0f);
     ImGui::Separator();
 
-    // Manipulation au canvas : trois outils radio (un seul armé à la fois).
-    ImGui::TextDisabled("Manipulation au canvas (clic gauche + glisser) :");
-    const float bw = dialogBtnWidth({"Déplacer", "Pivoter", "Échelle", "Ajuster", "Retirer"});
-    if (toolBtnIcon("grab", "Déplacer le calque — clic gauche + glisser",
-                    app.layerTool == LayerTool::Move, kGreen, false, "Déplacer", bw))
-        app.toggleLayerTool(LayerTool::Move);
+    // Manipulation au canvas : bouton unifié (anneau autour du curseur avec
+    // poignées de déplacement, rotation, échelle et symétrie).
+    ImGui::TextDisabled("Manipulation au canvas (anneau de poignées) :");
+    const float bw = dialogBtnWidth({"Manipuler", "Ajuster", "Retirer"});
+    if (toolBtnIcon("grab",
+                    app.layerArmed
+                        ? "Manipulation du calque armée — anneau de poignées visible "
+                          "au canvas · clic pour ancrer · clic droit ou Échap : désarmer"
+                        : "Manipuler le calque — active l'anneau de poignées autour "
+                          "du curseur (déplacement, rotation, échelle) · "
+                          "clic droit ou Échap : désarmer",
+                    app.layerArmed, kGreen, false, "Manipuler", bw))
+        app.toggleLayerMode();
+    ImGui::Separator();
+
+    // Symétries : actions instantanées (miroir X, Y ou les deux).
+    ImGui::TextDisabled("Symétries (clics instantanés) :");
+    const float symW = dialogBtnWidth({"Miroir X", "Miroir Y", "Miroir X/Y"});
+    if (toolBtnIcon("mirror-x", "Retourner le calque horizontalement (miroir X)",
+                    false, kGreen, false, "Miroir X", symW))
+        app.applyLayerSymmetry(LayerHandleKind::MirrorX);
     ImGui::SameLine();
-    if (toolBtnIcon("rotate", "Pivoter le calque — glisser autour du centre",
-                    app.layerTool == LayerTool::Rotate, kGreen, false, "Pivoter", bw))
-        app.toggleLayerTool(LayerTool::Rotate);
+    if (toolBtnIcon("mirror-y", "Retourner le calque verticalement (miroir Y)",
+                    false, kGreen, false, "Miroir Y", symW))
+        app.applyLayerSymmetry(LayerHandleKind::MirrorY);
     ImGui::SameLine();
-    if (toolBtnIcon("scale", "Redimensionner le calque — poignées au canvas : "
-                    "bords gauche/droit = largeur (X), haut/bas = hauteur (Y), "
-                    "coins = les deux axes (rapport x/y conservé) ; sinon "
-                    "vertical : taille · horizontal : largeur · Maj+horizontal : "
-                    "hauteur",
-                    app.layerTool == LayerTool::Scale, kGreen, false, "Échelle", bw))
-        app.toggleLayerTool(LayerTool::Scale);
+    if (toolBtnIcon("mirror-both", "Retourner le calque horizontalement et verticalement",
+                    false, kGreen, false, "Miroir X/Y", symW))
+        app.applyLayerSymmetry(LayerHandleKind::MirrorBoth);
     ImGui::Separator();
 
     // Opacité du calque : exprimée de 0 à 100 % avec un incrément de 1 (une
@@ -1721,12 +1849,10 @@ void layerPopup(App& app) {
     if (toolBtnIcon("delete-shape", "Retirer le calque d'image de la scène", false, kRed,
                     false, "Retirer le calque", bw))
         app.removeImageLayer();
-    if (app.layerTool != LayerTool::None) {
+    if (app.layerArmed) {
         ImGui::Separator();
-        ImGui::TextDisabled("Armé : %s — clic droit ou Échap au canvas pour désarmer.",
-                            app.layerTool == LayerTool::Move   ? "déplacer"
-                            : app.layerTool == LayerTool::Rotate ? "pivoter"
-                                                                 : "échelle");
+        ImGui::TextDisabled("Armé : anneau de poignées au canvas — "
+                            "clic droit ou Échap pour désarmer.");
     }
     ImGui::EndPopup();
 }
@@ -1974,20 +2100,30 @@ void consoleWindow(App& app) {
     ImGui::End();
 }
 
-// Panneau « Réglages » : distance de détection des segments au survol (et en
-// mode « segment »). Mémorisée dans les préférences (prefs.json).
+// Panneau « Réglages » : distances de détection des sommets et des segments
+// au survol (et en mode « sommet » / « segment »). Mémorisées dans les
+// préférences (prefs.json).
 void settingsPanel(App& app) {
     if (!app.settingsOpen) return;
     if (ImGui::Begin("Réglages", &app.settingsOpen)) {
         ImGui::TextUnformatted("Détection des segments :");
         ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##edgeTol", &app.edgePickTol, 2.0f, 30.0f, "%.0f px"))
-            app.edgePickTol = std::clamp(app.edgePickTol, 2.0f, 30.0f);
+        if (ImGui::SliderFloat("##edgeTol", &app.edgePickTol, 2.0f, 150.0f, "%.0f px"))
+            app.edgePickTol = std::clamp(app.edgePickTol, 2.0f, 150.0f);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Distance (pixels écran) à laquelle un segment "
                               "s'illumine au survol et sert de base à un nouveau "
                               "triangle (mode sommet) — vaut aussi pour la "
-                              "sélection en cible « segment ».");
+                              "sélection en cible « segment ». Réglable de 2 à 150 px.");
+        ImGui::TextUnformatted("Détection des sommets :");
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderFloat("##vertTol", &app.vertexPickTol, 2.0f, 150.0f, "%.0f px"))
+            app.vertexPickTol = std::clamp(app.vertexPickTol, 2.0f, 150.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Distance (pixels écran) à laquelle un sommet "
+                              "s'illumine au survol et est attrapé au clic "
+                              "(sélection et construction en cible « sommet »). "
+                              "Réglable de 2 à 150 px.");
         ImGui::Separator();
         ImGui::TextUnformatted("Grille :");
         if (ImGui::Checkbox("Afficher la grille (G)", &app.gridOn)) {
@@ -2060,7 +2196,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Historique (barre d'outils) : versions horodatées de l'autosave — restaurer un état antérieur");
         ImGui::BulletText("Anneau orange : points superposés — clic pour les sélectionner tous, « Fusionner » les regroupe à la position moyenne (5.5)");
         ImGui::BulletText("Fusion par déplacement (5.6) : 1 point sélectionné + bouton Fusionner, puis glisser le point près d'un autre — molette sur le bouton : rayon 8-64 px, re-clic : verrouiller (cadenas)");
-        ImGui::BulletText("Engrenage (barre d'outils) : distance de détection des segments (illumination au survol)");
+        ImGui::BulletText("Engrenage (barre d'outils) : distances de détection des sommets et des segments (illumination au survol, 2 à 150 px)");
     }
     ImGui::End();
 }

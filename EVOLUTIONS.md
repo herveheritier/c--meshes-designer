@@ -24,11 +24,61 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] ajouter la possibilité de tracer un polygone et le transformer automatiquement en un assemblage de triangles à la validation
 - [ ] améliorer gestion de la boite à outils ; les paquets de boutons doivent pouvoir être ouverts ou fermés chaque paquet est générer par un bouton dédié
 
 ## Effectuées
 
+- 2026-08-12 (à venir) - Enchaînement des découpes en une étape annulable :
+  l'outil Découpe reste armé après chaque découpe — on peut tracer et
+  appliquer plusieurs découpes d'affilée (sur le même plan) qui ne forment
+  qu'**une seule étape annulable** (l'historique n'est poussé qu'à la 1re
+  découpe de la chaîne). La chaîne s'achève par Échap (sans tracé en cours),
+  par le bouton Découper (D) ou par le changement d'outil / de mode ; elle
+  est aussi close par une annulation/rétablissement ou le remplacement de la
+  scène. Une découpe qui ne touche aucune face est ignorée sans terminer la
+  chaîne. Statuts et infobulle mis à jour.
+- 2026-08-12 (à venir) - Découpe entièrement triangulée : après une
+  soustraction de polygone, les nouvelles pièces restent **triangulées** — les
+  arêtes internes créées par la triangulation du résultat sont conservées
+  (aucun réassemblage). Une entaille de coin devient 4 triangles (L à 6
+  sommets), une entaille d'arête un octogone de 6 triangles, un trou
+  intérieur n'est jamais comblé (anneau de 8 triangles), une découpe qui
+  sépare produit des triangles par morceau, les faces non touchées restent
+  intactes, et la couleur de la face découpée est conservée par toutes ses
+  pièces. Tests meshtest : toute pièce issue d'une découpe est un triangle,
+  aire conservée, trou non comblé, couleurs jamais mélangées.
+- 2026-08-12 (à venir) - Polygone libre : un nouvel outil (bouton « Polygone » du
+  paquet Outils, raccourci U) permet de tracer un polygone libre au canvas
+  (clics gauches : sommets, re-clic près du 1er point : fermer, clic droit ou
+  Entrée : valider) et le transforme automatiquement en un assemblage de
+  triangles dans le plan actif. L'aperçu est vert (contour + remplissage
+  translucide), distinct du cyan de la découpe. Retour arrière retire le
+  dernier point, Échap annule le tracé ou désarme l'outil.
+- 2026-08-12 (à venir) - Triangulation répartie des polygones : la sélection de
+  la « meilleure oreille » privilégie le triangle le plus équilatéral puis le
+  sommet le plus proche du milieu de la boucle (à une tolérance d'angle près,
+  pour les polygones symétriques) — au lieu du premier-oreille-valide qui
+  fabriquait un éventail où tous les triangles partageaient le même sommet.
+  Sur un polygone régulier, chaque sommet n'apparaît plus que dans ~3
+  triangles (vérifié par test : octogone → aucun sommet dans tous les
+  triangles, aire conservée).
+- 2026-08-12 (à venir) - Découpe : les arêtes internes des triangles de la
+  découpe (diagonales partagées) sont annulées avant le tracé des boucles —
+  une entaille de coin qui débordait du plan actif renvoyait un résultat
+  vidé. La découpe peut désormais déborder du plan (seule la partie
+  chevauchante est retirée), et le résultat est triangulé en zigzag comme
+  l'outil polygone (tests : entaille de coin → « L » d'aire 39, entaille
+  d'arête → 56, anneau → 48, sommet dans ~3 triangles).
+- 2026-08-12 (à venir) - Anneau de manipulation unifié du calque : le
+  calque se manipule désormais avec un seul bouton au lieu de trois — un
+  anneau de poignées apparaît autour du curseur (il suit la souris avant
+  ancrage, puis se fixe au clic). L'anneau contient 12 poignées colorées :
+  cyan pour le redimensionnement en X, ambre pour le redimensionnement en Y,
+  blanc pour l'échelle uniforme (rapport x/y conservé), et rouge pour les
+  symétries (miroir horizontal, vertical ou les deux). Quatre flèches vertes
+  à l'extérieur de l'anneau permettent le déplacement contraint (X ou Y
+  seulement), le centre permet le déplacement libre, et l'anneau lui-même
+  permet la rotation. Un clic droit ou Échap désarme le mode comme avant.
 - 2026-08-12 (17e7cac) - Poignées de redimensionnement du calque : l'outil
   Échelle du calque affiche 8 poignées au canvas — milieux des arêtes
   gauche/droite = axe X (largeur), haut/bas = axe Y (hauteur), coins = les

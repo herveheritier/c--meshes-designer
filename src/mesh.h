@@ -99,7 +99,10 @@ public:
     // quelconque, concave autorisée) : les faces partiellement recouvertes sont
     // recoupées (la partie restante conserve la couleur), celles entièrement
     // dans la zone découpée sont supprimées, les autres restent intactes.
-    // Retourne false si `cut` ne touche aucune face (rien n'a changé).
+    // Le résultat est entièrement triangulé : chaque pièce issue de la
+    // soustraction est un triangle (les arêtes internes de la triangulation
+    // sont conservées) — un trou n'est jamais comblé. Retourne false si
+    // `cut` ne touche aucune face.
     bool cutPolygon(const std::vector<Vec2>& cut);
 
     // --- Arêtes (dérivées des faces) ---

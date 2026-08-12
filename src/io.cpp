@@ -802,6 +802,7 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     v.obj.emplace_back("circleSides", JVal::num(p.circleSides));
     v.obj.emplace_back("crownInnerSides", JVal::num(p.crownInnerSides));
     v.obj.emplace_back("edgePickTol", JVal::num(p.edgePickTol));
+    v.obj.emplace_back("vertexPickTol", JVal::num(p.vertexPickTol));
     v.obj.emplace_back("mergeRadius", JVal::num(p.mergeRadius));
     JVal loc = JVal::array();
     for (const auto& s : p.locations) loc.arr.push_back(JVal::str(s));
@@ -851,6 +852,7 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
     if (root.getNum("circleSides", d)) out.circleSides = (int)d;
     if (root.getNum("crownInnerSides", d)) out.crownInnerSides = (int)d;
     if (root.getNum("edgePickTol", d)) out.edgePickTol = (float)d;
+    if (root.getNum("vertexPickTol", d)) out.vertexPickTol = (float)d;
     if (root.getNum("mergeRadius", d)) out.mergeRadius = (int)d;
     if (root.getNum("importMode", d)) out.importMode = (int)d;
     bool ac = out.allColors;

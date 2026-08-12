@@ -14,6 +14,15 @@ namespace mesh {
 // `tris`: reçoit des triplets d'indices dans `pts` (n-2 triangles).
 // Retourne false si le polygone est dégénéré (auto-sécant, aire nulle…) ;
 // dans ce cas un repli en éventail est tout de même émis.
+//
+// Sélection de la « meilleure oreille » : à chaque pas, toutes les oreilles
+// valides sont évaluées et celle dont le triangle a le plus grand angle
+// minimal est coupée (égalité à une petite tolérance près → sommet le plus
+// proche du milieu de la boucle courante ; la tolérance regroupe les oreilles
+// identiques au bruit flottant près). Sur un polygone convexe, le
+// premier-oreille-valide produirait un éventail — tous les triangles
+// partageant le même sommet ; cette sélection répartit les sommets entre les
+// triangles (motif en zigzag sur les réguliers, triangles peu allongés).
 bool triangulatePolygon(const std::vector<Vec2>& pts, std::vector<int>& tris);
 
 // Triangule la bande entre deux boucles de sommets ordonnées dans le même

@@ -58,6 +58,7 @@ const char* toolName(Tool t) {
         case Tool::Ring: return "anneau";
         case Tool::Crown: return "couronne";
         case Tool::Cut: return "découpe";
+        case Tool::Polygon: return "polygone";
         default: return "?";
     }
 }
@@ -169,12 +170,14 @@ void App::newDocument() {
     clearSelection();
     undoStack.clear();
     redoStack.clear();
+    cutChainUndo_ = false;  // l'historique est effacé : plus de chaîne de découpes
     currentFile.clear();
     sceneName.clear();
     triP1 = triP2 = -1;
     dirty = false;
     sceneTool = SceneTool::None;
-    layerTool = LayerTool::None;
+    layerArmed = false;
+    layerAnchored = false;
     lassoArmed = false;
     lassoPts.clear();
     pipetteArmed = false;
@@ -398,10 +401,10 @@ void App::update(float dt) {
         return;
     }
 
-    // --- Calque d'image (7.7) : déplacer / pivoter / redimensionner l'image au
-    // canvas. Même principe que le mode Scène : l'outil armé monopolise le
-    // canvas (clic gauche + glisser), le clic droit désarme.
-    if (layerTool != LayerTool::None) {
+    // --- Calque d'image (7.7) : mode unifié — un anneau de poignées apparaît
+    // autour du curseur. Clic gauche ancre l'anneau ; les poignées permettent
+    // déplacement, rotation, échelle et symétrie. Clic droit ou Échap désarme.
+    if (layerArmed) {
         if (isLayerDragging()) {
             if (io.MouseDown[0]) {
                 applyLayerDrag(mouseWorld, mouseScreen);
@@ -412,7 +415,7 @@ void App::update(float dt) {
             if (io.MouseClicked[0]) {
                 beginLayerDrag(mouseWorld, mouseScreen);
             } else if (io.MouseClicked[1]) {
-                toggleLayerTool(LayerTool::None);  // clic droit : désarmer
+                toggleLayerMode();  // clic droit : désarmer
             }
         }
         return;
@@ -464,7 +467,7 @@ void App::update(float dt) {
     hoverVertex = -1;
     if (tool == Tool::Select && selMode == SelMode::Vertex) {
         if (drag_.kind == DragKind::None) {
-            hoverVertex = pickVertex(mouseWorld, 8.0f);
+            hoverVertex = pickVertex(mouseWorld, vertexPickTol);
             hoverEdge = (hoverVertex >= 0) ? Mesh2D::Edge{-1, -1}
                                            : pickEdge(mouseWorld, edgePickTol);
         }
@@ -513,6 +516,10 @@ void App::update(float dt) {
             applyCut();  // clic droit : ferme la découpe et l'applique
             return;
         }
+        if (tool == Tool::Polygon) {
+            applyPolygon();  // clic droit : ferme le polygone et triangule
+            return;
+        }
         if (measureActive) {
             toggleMeasure();  // clic droit : désarme l'outil mesure
             return;
@@ -536,7 +543,7 @@ void App::update(float dt) {
             // seul sélectionné et se déplace aussitôt.
             bool handled = false;
             if (selMode == SelMode::Vertex) {
-                const int v = pickVertex(mouseWorld, 8.0f);
+                const int v = pickVertex(mouseWorld, vertexPickTol);
                 if (v >= 0) {
                     handled = true;
                     if (io.KeyShift) {
@@ -603,6 +610,21 @@ void App::update(float dt) {
                 cutPts.push_back(w);
                 setStatus("Découpe : " + std::to_string(cutPts.size()) +
                           " point(s) — clic droit ou Entrée : découper · Retour "
+                          "arrière : retirer le dernier point");
+            }
+            return;
+        }
+        if (tool == Tool::Polygon) {
+            // Sommet du polygone ; un clic près du 1er point ferme et triangule
+            // (équivalent au clic droit / Entrée).
+            const Vec2 w = snappedPoint(mouseWorld);
+            const float closeTol = 14.0f / std::max(camera.zoom, 1e-3f);
+            if (polyPts.size() >= 3 && distance(w, polyPts.front()) < closeTol) {
+                applyPolygon();
+            } else {
+                polyPts.push_back(w);
+                setStatus("Polygone : " + std::to_string(polyPts.size()) +
+                          " point(s) — clic droit ou Entrée : valider · Retour "
                           "arrière : retirer le dernier point");
             }
             return;
@@ -965,7 +987,7 @@ void App::handleSelectClick(const Vec2& world, const Vec2& screen) {
                       " · « Fusionner » les regroupe en un seul point");
             return;
         }
-        const int v = pickVertex(world, 8.0f);
+        const int v = pickVertex(world, vertexPickTol);
         if (v >= 0) {
             if (io.KeyShift) {
                 const auto it = std::find(selVerts.begin(), selVerts.end(), v);
@@ -1287,11 +1309,14 @@ void App::toggleLasso() {
     // Le lasso monopolise le canvas : le mode Scène, l'outil calque et les
     // modes transitoires se désarment, l'outil revient à la sélection.
     sceneTool = SceneTool::None;
-    layerTool = LayerTool::None;
+    layerArmed = false;
+    layerAnchored = false;
     brushArmed = false;
     measureActive = false;
     mergeMode = MergeMode::Off;
+    cutChainUndo_ = false;  // une découpe en chaîne s'achève avec le mode
     cutPts.clear();
+    polyPts.clear();
     triP1 = triP2 = -1;
     pipetteArmed = false;
     pipettePending_ = false;
@@ -1338,13 +1363,16 @@ void App::togglePipette() {
     }
     // Comme les autres modes canvas, la pipette désarme le reste.
     sceneTool = SceneTool::None;
-    layerTool = LayerTool::None;
+    layerArmed = false;
+    layerAnchored = false;
     lassoArmed = false;
     lassoPts.clear();
     brushArmed = false;
     measureActive = false;
     mergeMode = MergeMode::Off;
+    cutChainUndo_ = false;  // une découpe en chaîne s'achève avec le mode
     cutPts.clear();
+    polyPts.clear();
     triP1 = triP2 = -1;
     if (drag_.kind != DragKind::None) drag_.kind = DragKind::None;
     if (tool != Tool::Select) tool = Tool::Select;
@@ -1377,7 +1405,7 @@ void App::collectSelectionInside(const std::function<bool(const Vec2&)>& inside)
 
 bool App::pickNearestOnly(const Vec2& world) {
     if (selMode == SelMode::Vertex) {
-        const int v = pickVertex(world, 8.0f);
+        const int v = pickVertex(world, vertexPickTol);
         if (v < 0) return false;
         clearSelection();
         selVerts.push_back(v);
@@ -1399,7 +1427,7 @@ bool App::pickNearestOnly(const Vec2& world) {
 
 void App::addEntityToSelection(const Vec2& world) {
     if (selMode == SelMode::Vertex) {
-        const int v = pickVertex(world, 8.0f);
+        const int v = pickVertex(world, vertexPickTol);
         if (v < 0) return;
         if (std::find(selVerts.begin(), selVerts.end(), v) == selVerts.end())
             selVerts.push_back(v);
@@ -1466,7 +1494,9 @@ void App::addTriangleBuild(const Vec2& world) {
 // ---------------------------------------------------------------------------
 void App::startShapeTool(Tool t) {
     tool = t;
-    cutPts.clear();  // une forme remplace la découpe en cours
+    cutChainUndo_ = false;  // une découpe en chaîne s'achève avec la forme
+    cutPts.clear();   // une forme remplace la découpe en cours
+    polyPts.clear();
     drag_.kind = DragKind::None;
     drag_.shapeStage = 0;
     const bool threeClicks = t == Tool::Star || t == Tool::Ring || t == Tool::Crown;
@@ -1477,6 +1507,7 @@ void App::startShapeTool(Tool t) {
 }
 
 void App::toggleCutTool() {
+    cutChainUndo_ = false;  // chaque armement démarre une nouvelle étape annulable
     if (tool == Tool::Cut) {
         tool = Tool::Select;
         cutPts.clear();
@@ -1486,7 +1517,9 @@ void App::toggleCutTool() {
         tool = Tool::Cut;
         cutPts.clear();
         setStatus("Découpe armée — clics gauches : sommets du polygone · clic droit ou "
-                  "Entrée : découper · Retour arrière : dernier point · Échap : annuler (D)");
+                  "Entrée : découper · l'outil reste armé après chaque découpe (une "
+                  "étape annulable par chaîne) · Retour arrière : dernier point · "
+                  "Échap : annuler (D)");
         logMsg("Outil découpe armé");
     }
 }
@@ -1501,19 +1534,28 @@ void App::applyCut() {
     // découpe touche réellement des faces.
     Mesh2D copy = scene.activePlane();
     if (!copy.cutPolygon(cutPts)) {
-        setStatus("La découpe ne touche aucune face du plan actif");
+        setStatus("La découpe ne touche aucune face du plan actif — tracez une "
+                  "autre découpe ou Échap / D pour terminer");
         cutPts.clear();
-        tool = Tool::Select;
-        return;
+        return;  // l'outil reste armé : on peut retracer dans la même chaîne
     }
-    pushUndo();
+    // Enchaînement : la 1re découpe de la salve pousse l'historique ; tant que
+    // l'outil reste armé, les suivantes partagent la même étape annulable.
+    if (!cutChainUndo_) {
+        pushUndo();
+        cutChainUndo_ = true;
+    }
     scene.activePlane() = std::move(copy);
     const int nv = (int)scene.activePlane().vertices.size();
-    const int nf = (int)scene.activePlane().faces.size();
+    // Le résultat d'une découpe est entièrement triangulé : on affiche le
+    // nombre de TRIANGLES (les faces non touchées y comptent aussi, via leur
+    // propre triangulation — même vocabulaire que le HUD / le kiosque).
+    const int nt = scene.activePlane().triangleCount();
     cutPts.clear();
-    tool = Tool::Select;
     const std::string msg = "Découpe appliquée — " + std::to_string(nv) + " sommets, " +
-                            std::to_string(nf) + " faces";
+                            std::to_string(nt) +
+                            " triangles — l'outil reste armé : tracez une autre découpe · "
+                            "Échap ou D : terminer (une seule étape annulable)";
     setStatus(msg);
     logMsg(msg);
 }
@@ -1524,6 +1566,63 @@ void App::removeLastCutPoint() {
     setStatus(cutPts.empty()
                   ? "Découpe : plus aucun point — Échap désarme l'outil"
                   : "Découpe : " + std::to_string(cutPts.size()) +
+                        " point(s) — Retour arrière : retirer le dernier");
+}
+
+// --- Outil Polygone : tracer un polygone libre et le trianguler ---
+void App::togglePolygonTool() {
+    cutChainUndo_ = false;  // une découpe en chaîne s'achève avec le changement d'outil
+    if (tool == Tool::Polygon) {
+        tool = Tool::Select;
+        polyPts.clear();
+        setStatus("Outil polygone désarmé");
+    } else {
+        if (isShapeTool(tool)) cancelShapeTrace();
+        tool = Tool::Polygon;
+        polyPts.clear();
+        setStatus("Polygone armé — clics gauches : sommets du polygone · clic droit ou "
+                  "Entrée : valider et trianguler · Retour arrière : dernier point · "
+                  "Échap : annuler (U)");
+        logMsg("Outil polygone armé");
+    }
+}
+
+void App::applyPolygon() {
+    if (tool != Tool::Polygon) return;
+    if (polyPts.size() < 3) {
+        setStatus("Polygone : il faut au moins 3 points");
+        return;
+    }
+    pushUndo();
+    Mesh2D& m = scene.activePlane();
+    // Ajoute les sommets, puis triangule le polygone via addTriangulatedFace.
+    std::vector<int> verts;
+    verts.reserve(polyPts.size());
+    for (const Vec2& p : polyPts) verts.push_back(m.addVertex(p));
+    if (m.addTriangulatedFace(verts) <= 0) {
+        undoStack.pop_back();
+        setStatus("Polygone dégénéré — impossible de trianguler");
+        polyPts.clear();
+        tool = Tool::Select;
+        return;
+    }
+    const int nv = (int)m.vertices.size();
+    const int nf = (int)m.faces.size();
+    polyPts.clear();
+    tool = Tool::Select;
+    const std::string msg = "Polygone triangulé — " + std::to_string(nv) + " sommets, " +
+                            std::to_string(nf) + " faces";
+    setStatus(msg);
+    logMsg(msg);
+    dirty = true;
+}
+
+void App::removeLastPolygonPoint() {
+    if (tool != Tool::Polygon || polyPts.empty()) return;
+    polyPts.pop_back();
+    setStatus(polyPts.empty()
+                  ? "Polygone : plus aucun point — Échap désarme l'outil"
+                  : "Polygone : " + std::to_string(polyPts.size()) +
                         " point(s) — Retour arrière : retirer le dernier");
 }
 
@@ -1971,11 +2070,12 @@ void App::toggleSceneTool(SceneTool t) {
         brushArmed = false;
         measureActive = false;
         mergeMode = MergeMode::Off;
+        cutChainUndo_ = false;  // une découpe en chaîne s'achève avec le mode
         cutPts.clear();
+        polyPts.clear();
         triP1 = triP2 = -1;
-        layerTool = LayerTool::None;
-        lassoArmed = false;
-        lassoPts.clear();
+        layerArmed = false;
+        layerAnchored = false;
         pipetteArmed = false;
         pipettePending_ = false;
         if (tool != Tool::Select) {
@@ -2113,138 +2213,146 @@ void App::endSceneDrag() {
 // ---------------------------------------------------------------------------
 // Calque d'image de fond (7.7) : déplacer / pivoter / redimensionner l'image
 // ---------------------------------------------------------------------------
-void App::toggleLayerTool(LayerTool t) {
-    if (scene.image.path.empty() && t != LayerTool::None) {
-        setStatus("Aucun calque : chargez d'abord une image (bouton Calque)");
-        return;
-    }
-    if (layerTool == t) {
-        layerTool = LayerTool::None;
+void App::toggleLayerMode() {
+    if (layerArmed) {
+        if (isLayerDragging()) endLayerDrag();
+        layerArmed = false;
+        layerAnchored = false;
+        layerHover = LayerHandleKind::None;
         setStatus("Manipulation du calque désarmée");
         return;
     }
-    // Une saisie en cours est terminée proprement avant de changer d'outil
-    // (les drags d'édition sont laissés tels quels : la prochaine commande
-    // d'édition les finalisera normalement).
-    if (isLayerDragging()) {
-        endLayerDrag();
-    } else if (isSceneDragging()) {
-        endSceneDrag();
-    } else if (drag_.kind == DragKind::Shape) {
-        cancelShapeTrace();
-    } else if (drag_.kind != DragKind::None) {
-        drag_.kind = DragKind::None;
+    if (scene.image.path.empty()) {
+        setStatus("Aucun calque : chargez d'abord une image (bouton Calque)");
+        return;
     }
-    // Comme le mode Scène, l'outil calque monopolise le canvas : le mode scène
-    // et les modes transitoires se désarment, l'outil revient à la sélection.
-    if (t != LayerTool::None) {
-        sceneTool = SceneTool::None;
-        brushArmed = false;
-        measureActive = false;
-        mergeMode = MergeMode::Off;
-        cutPts.clear();
-        triP1 = triP2 = -1;
-        lassoArmed = false;
-        lassoPts.clear();
-        pipetteArmed = false;
-        pipettePending_ = false;
-        if (tool != Tool::Select) {
-            tool = Tool::Select;
-            setStatus("Calque : les outils d'édition sont désarmés");
-        }
+    if (isSceneDragging()) endSceneDrag();
+    else if (drag_.kind == DragKind::Shape) cancelShapeTrace();
+    else if (drag_.kind != DragKind::None) drag_.kind = DragKind::None;
+    sceneTool = SceneTool::None;
+    brushArmed = false;
+    measureActive = false;
+    mergeMode = MergeMode::Off;
+    cutChainUndo_ = false;  // une découpe en chaîne s'achève avec le mode
+    cutPts.clear();
+    polyPts.clear();
+    triP1 = triP2 = -1;
+    lassoArmed = false;
+    lassoPts.clear();
+    pipetteArmed = false;
+    pipettePending_ = false;
+    if (tool != Tool::Select) {
+        tool = Tool::Select;
+        setStatus("Calque : les outils d'édition sont désarmés");
     }
-    layerTool = t;
-    switch (t) {
-        case LayerTool::Move:
-            setStatus("Déplacer le calque — clic gauche + glisser au canvas · clic "
-                      "droit ou Échap : désarmer");
-            break;
-        case LayerTool::Rotate:
-            setStatus("Pivoter le calque — clic gauche + glisser autour du centre · "
-                      "clic droit ou Échap : désarmer");
-            break;
-        case LayerTool::Scale:
-            setStatus("Redimensionner le calque — poignées : bords gauche/droit = "
-                      "largeur (X), haut/bas = hauteur (Y), coins = les deux axes "
-                      "(rapport x/y conservé) · glisser ailleurs : vertical = "
-                      "taille, horizontal = largeur, Maj+horizontal = hauteur · "
-                      "clic droit ou Échap : désarmer");
-            break;
-        default:
-            // Désarmement par clic droit au canvas (t == None) : retour d'état.
-            setStatus("Manipulation du calque désarmée");
-            break;
-    }
+    layerArmed = true;
+    layerAnchored = false;
+    layerHover = LayerHandleKind::None;
+    setStatus("Calque : déplacez le curseur, cliquez pour ancrer l'anneau — "
+              "poignées : déplacement (centre/flèches), rotation (anneau), "
+              "échelle (poignées extérieures), symétrie (boutons) · "
+              "clic droit ou Échap : désarmer");
 }
 
 bool App::isLayerDragging() const {
-    return drag_.kind == DragKind::LayerMove || drag_.kind == DragKind::LayerRotate ||
-           drag_.kind == DragKind::LayerScale;
+    return drag_.kind == DragKind::LayerHandle;
 }
 
 void App::beginLayerDrag(const Vec2& world, const Vec2& screen) {
-    if (layerTool == LayerTool::None) return;
-    pushUndo();  // l'état du calque fait partie de la scène (une étape par geste)
-    drag_.layerStartCenter = scene.image.center;
-    drag_.layerStartRot = scene.image.rotation;
-    drag_.layerStartSx = scene.image.scaleX;
-    drag_.layerStartSy = scene.image.scaleY;
-    drag_.sceneAnchor = world;
-    drag_.sceneStartScreen = screen;
-    switch (layerTool) {
-        case LayerTool::Move: drag_.kind = DragKind::LayerMove; break;
-        case LayerTool::Rotate: drag_.kind = DragKind::LayerRotate; break;
-        case LayerTool::Scale: {
-            drag_.kind = DragKind::LayerScale;
-            // Poignées : si le clic tombe sur l'une des 8 poignées (milieux
-            // d'arêtes = X / Y, coins = les deux axes), la saisie devient une
-            // échelle ancrée sur l'arête / le coin opposé ; sinon, geste libre.
-            drag_.layerHandle = LayerHandle::None;
-            std::vector<Vec2> pts;
-            if (scene.image.visible) layerHandlePoints(pts);
-            const Vec2 vps = viewportVec2();
-            float best = 12.0f;  // rayon de saisie (px écran)
-            int bestIdx = -1;
-            for (int i = 0; i < (int)pts.size(); ++i) {
-                const float d = distance(camera.worldToScreen(pts[i], vps), screen);
-                if (d < best) {
-                    best = d;
-                    bestIdx = i;
-                }
-            }
-            if (bestIdx >= 0) {
-                // Correspondance index → (poignée, signe local) : les 4
-                // premiers points sont les milieux d'arêtes (X, X, Y, Y), les
-                // 4 suivants les coins (Both) — voir layerHandlePoints.
-                static const LayerHandle kKind[8] = {
-                    LayerHandle::X, LayerHandle::X, LayerHandle::Y, LayerHandle::Y,
-                    LayerHandle::Both, LayerHandle::Both, LayerHandle::Both,
-                    LayerHandle::Both};
-                static const float kSx[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
-                static const float kSy[8] = {0, 0, -1, 1, -1, -1, 1, 1};
-                drag_.layerHandle = kKind[bestIdx];
-                drag_.layerHandleLocal = {
-                    kSx[bestIdx] * scene.image.w * drag_.layerStartSx * 0.5f,
-                    kSy[bestIdx] * scene.image.h * drag_.layerStartSy * 0.5f};
-            }
-            break;
+    if (!layerArmed) return;
+    // Si l'anneau n'est pas encore ancré, le clic l'ancre à la position monde.
+    if (!layerAnchored) {
+        layerAnchor = world;
+        layerAnchored = true;
+        // Détecter si une poignée est survolée au moment du clic.
+        std::vector<LayerHandleKind> kinds;
+        std::vector<Vec2> wpos;
+        layerRingHandles(kinds, wpos);
+        const Vec2 vps = viewportVec2();
+        float best = 16.0f;
+        int bestIdx = -1;
+        for (int i = 0; i < (int)wpos.size(); ++i) {
+            const float d = distance(camera.worldToScreen(wpos[i], vps), screen);
+            if (d < best) { best = d; bestIdx = i; }
         }
-        default: break;
+        // Si une poignée est survolée, on commence le drag.
+        if (bestIdx >= 0) {
+            pushUndo();
+            drag_.layerStartCenter = scene.image.center;
+            drag_.layerStartRot = scene.image.rotation;
+            drag_.layerStartSx = scene.image.scaleX;
+            drag_.layerStartSy = scene.image.scaleY;
+            drag_.kind = DragKind::LayerHandle;
+            drag_.layerHandleKind = kinds[bestIdx];
+            drag_.sceneAnchor = world;
+            drag_.sceneStartScreen = screen;
+            setStatus("Calque : glissez pour modifier");
+            return;
+        }
+        // Sinon, clic sur l'anneau lui-même = rotation
+        pushUndo();
+        drag_.layerStartCenter = scene.image.center;
+        drag_.layerStartRot = scene.image.rotation;
+        drag_.layerStartSx = scene.image.scaleX;
+        drag_.layerStartSy = scene.image.scaleY;
+        drag_.kind = DragKind::LayerHandle;
+        drag_.layerHandleKind = LayerHandleKind::Rotate;
+        drag_.sceneAnchor = world;
+        drag_.sceneStartScreen = screen;
+        setStatus("Calque : pivotez (glissez autour de l'anneau)");
+        return;
+    }
+    // Anneau déjà ancré : détecter la poignée survolée.
+    std::vector<LayerHandleKind> kinds;
+    std::vector<Vec2> wpos;
+    layerRingHandles(kinds, wpos);
+    const Vec2 vps = viewportVec2();
+    float best = 16.0f;
+    int bestIdx = -1;
+    for (int i = 0; i < (int)wpos.size(); ++i) {
+        const float d = distance(camera.worldToScreen(wpos[i], vps), screen);
+        if (d < best) { best = d; bestIdx = i; }
+    }
+    if (bestIdx >= 0) {
+        // Poignée d'action détectée : démarrer le drag.
+        pushUndo();
+        drag_.layerStartCenter = scene.image.center;
+        drag_.layerStartRot = scene.image.rotation;
+        drag_.layerStartSx = scene.image.scaleX;
+        drag_.layerStartSy = scene.image.scaleY;
+        drag_.kind = DragKind::LayerHandle;
+        drag_.sceneAnchor = world;
+        drag_.sceneStartScreen = screen;
+        drag_.layerHandleKind = kinds[bestIdx];
+        setStatus("Calque : glissez pour modifier");
+    } else {
+        // Clic dans le vide ou sur zone libre : ré-ancrer l'anneau ici.
+        layerAnchor = world;
+        setStatus("Calque : anneau ré-ancré — utilisez les poignées ou "
+                  "re-cliquez ailleurs");
     }
 }
 
-void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
+void App::applyLayerDrag(const Vec2& world, const Vec2& /*screen*/) {
+    if (drag_.kind != DragKind::LayerHandle) return;
     ImageLayer& il = scene.image;
-    switch (layerTool) {
-        case LayerTool::Move: {
+    switch (drag_.layerHandleKind) {
+        case LayerHandleKind::MoveFree: {
             const Vec2 delta = world - drag_.sceneAnchor;
             il.center = drag_.layerStartCenter + delta;
             break;
         }
-        case LayerTool::Rotate: {
-            // Le point saisi suit le curseur autour du centre : la rotation
-            // demandée est l'angle entre la direction départ et la direction
-            // courante du curseur (indépendant du zoom et du point de saisie).
+        case LayerHandleKind::MoveX: {
+            const Vec2 delta = world - drag_.sceneAnchor;
+            il.center = drag_.layerStartCenter + Vec2{delta.x, 0.0f};
+            break;
+        }
+        case LayerHandleKind::MoveY: {
+            const Vec2 delta = world - drag_.sceneAnchor;
+            il.center = drag_.layerStartCenter + Vec2{0.0f, delta.y};
+            break;
+        }
+        case LayerHandleKind::Rotate: {
             const Vec2 d0 = drag_.sceneAnchor - drag_.layerStartCenter;
             const Vec2 d1 = world - il.center;
             float a0 = std::atan2(d0.y, d0.x);
@@ -2252,62 +2360,40 @@ void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
             il.rotation = drag_.layerStartRot + (a1 - a0);
             break;
         }
-        case LayerTool::Scale: {
-            if (drag_.layerHandle != LayerHandle::None) {
-                // Échelle ancrée par poignée : l'arête / le coin opposé reste
-                // fixe, la poignée saisie suit le curseur (le long des axes
-                // locaux du calque, rotation conservée).
-                const float cs = std::cos(il.rotation);
-                const float sn = std::sin(il.rotation);
-                const Vec2 u{cs, sn}, v{-sn, cs};
-                const float hx = drag_.layerHandleLocal.x;
-                const float hy = drag_.layerHandleLocal.y;
-                // Ancre = point opposé de la poignée (repère de départ).
-                const Vec2 anchor = drag_.layerStartCenter +
-                                    Vec2{-cs * hx + sn * hy, -sn * hx - cs * hy};
-                const float sx = (hx > 0.0f) - (hx < 0.0f);
-                const float sy = (hy > 0.0f) - (hy < 0.0f);
-                const float lx = dot(world - anchor, u);
-                const float ly = dot(world - anchor, v);
-                const float minHw = 1e-4f, minHh = 1e-4f;
-                const float hw0 = il.w * drag_.layerStartSx * 0.5f;
-                const float hh0 = il.h * drag_.layerStartSy * 0.5f;
-                float newHw, newHh;
-                if (sx != 0.0f && sy != 0.0f) {
-                    // Coin (les deux axes) : un seul facteur k, projection du
-                    // curseur sur la diagonale (du coin fixe vers la poignée
-                    // saisie) — le rapport x/y du calque est préservé (pas de
-                    // distorsion, à l'instar d'un zoom centré sur le coin).
-                    // hx = sx·hw0 et hy = sy·hh0 : la projection vaut
-                    // (lx·hx + ly·hy) / (2·(hw0² + hh0²)), k = 1 au départ.
-                    const float k =
-                        std::max((lx * hx + ly * hy) /
-                                     (2.0f * (hw0 * hw0 + hh0 * hh0)),
-                                 0.0f);
-                    newHw = std::max(hw0 * k, minHw);
-                    newHh = std::max(hh0 * k, minHh);
-                } else {
-                    // Bord seul (X ou Y) : un seul axe, l'autre inchangé.
-                    newHw = (sx != 0.0f) ? std::max(lx * sx * 0.5f, minHw) : hw0;
-                    newHh = (sy != 0.0f) ? std::max(ly * sy * 0.5f, minHh) : hh0;
-                }
-                il.scaleX = std::clamp(2.0f * newHw / (float)il.w, 1e-4f, 1e5f);
-                il.scaleY = std::clamp(2.0f * newHh / (float)il.h, 1e-4f, 1e5f);
-                il.center = anchor + Vec2{cs * sx * newHw - sn * sy * newHh,
-                                          sn * sx * newHw + cs * sy * newHh};
-                break;
-            }
-            const float k =
-                std::exp((screen.y - drag_.sceneStartScreen.y) * kSceneScalePerPx);
-            const float dx =
-                (screen.x - drag_.sceneStartScreen.x) * kSceneScalePerPx;
-            const bool shift = ImGui::GetIO().KeyShift;
-            // Vertical = taille uniforme ; horizontal = largeur (déformation) ;
-            // Maj+horizontal = hauteur seule.
-            il.scaleX = drag_.layerStartSx * k * (shift ? 1.0f : std::exp(dx));
-            il.scaleY = drag_.layerStartSy * k * (shift ? std::exp(dx) : 1.0f);
-            il.scaleX = std::clamp(il.scaleX, 1e-4f, 1e5f);
-            il.scaleY = std::clamp(il.scaleY, 1e-4f, 1e5f);
+        case LayerHandleKind::ScaleX: {
+            // Échelle horizontale depuis l'ancre de l'anneau
+            const float cs = std::cos(il.rotation);
+            const float sn = std::sin(il.rotation);
+            const Vec2 u{cs, sn};
+            const float dx = dot(world - drag_.sceneAnchor, u);
+            const float hw0 = il.w * drag_.layerStartSx * 0.5f;
+            const float newHw = std::max(hw0 + dx * 0.5f, 1e-4f);
+            il.scaleX = std::clamp(2.0f * newHw / (float)il.w, 1e-4f, 1e5f);
+            break;
+        }
+        case LayerHandleKind::ScaleY: {
+            const float cs = std::cos(il.rotation);
+            const float sn = std::sin(il.rotation);
+            const Vec2 v{-sn, cs};
+            const float dy = dot(world - drag_.sceneAnchor, v);
+            const float hh0 = il.h * drag_.layerStartSy * 0.5f;
+            const float newHh = std::max(hh0 + dy * 0.5f, 1e-4f);
+            il.scaleY = std::clamp(2.0f * newHh / (float)il.h, 1e-4f, 1e5f);
+            break;
+        }
+        case LayerHandleKind::ScaleBoth: {
+            const float cs = std::cos(il.rotation);
+            const float sn = std::sin(il.rotation);
+            const Vec2 u{cs, sn}, v{-sn, cs};
+            const float dx = dot(world - drag_.sceneAnchor, u);
+            const float dy = dot(world - drag_.sceneAnchor, v);
+            const float hw0 = il.w * drag_.layerStartSx * 0.5f;
+            const float hh0 = il.h * drag_.layerStartSy * 0.5f;
+            const float k = std::max(1.0f + (dx + dy) * 0.25f / std::max(hw0 + hh0, 1e-4f), 0.01f);
+            const float newHw = std::max(hw0 * k, 1e-4f);
+            const float newHh = std::max(hh0 * k, 1e-4f);
+            il.scaleX = std::clamp(2.0f * newHw / (float)il.w, 1e-4f, 1e5f);
+            il.scaleY = std::clamp(2.0f * newHh / (float)il.h, 1e-4f, 1e5f);
             break;
         }
         default: break;
@@ -2315,22 +2401,27 @@ void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
 }
 
 void App::endLayerDrag() {
-    const DragKind k = drag_.kind;
-    if (!isLayerDragging()) return;
+    if (drag_.kind != DragKind::LayerHandle) return;
+    const LayerHandleKind k = drag_.layerHandleKind;
     const ImageLayer& il = scene.image;
     const bool changed = distance(il.center, drag_.layerStartCenter) > 1e-5f ||
                          std::fabs(il.rotation - drag_.layerStartRot) > 1e-5f ||
                          std::fabs(il.scaleX - drag_.layerStartSx) > 1e-5f ||
                          std::fabs(il.scaleY - drag_.layerStartSy) > 1e-5f;
     drag_.kind = DragKind::None;
+    drag_.layerHandleKind = LayerHandleKind::None;
     if (!changed) {
-        if (!undoStack.empty()) undoStack.pop_back();  // clic sans glisser : pas d'étape
+        if (!undoStack.empty()) undoStack.pop_back();
         setStatus("Calque : aucun changement");
         return;
     }
-    const char* what = (k == DragKind::LayerMove)    ? "Calque déplacé"
-                     : (k == DragKind::LayerRotate)  ? "Calque pivoté"
-                                                     : "Calque redimensionné";
+    const char* what =
+        (k == LayerHandleKind::MoveFree || k == LayerHandleKind::MoveX ||
+         k == LayerHandleKind::MoveY)   ? "Calque déplacé"
+        : (k == LayerHandleKind::Rotate) ? "Calque pivoté"
+        : (k == LayerHandleKind::ScaleX || k == LayerHandleKind::ScaleY ||
+           k == LayerHandleKind::ScaleBoth) ? "Calque redimensionné"
+        : "Calque modifié";
     setStatus(std::string(what) + " (calque d'image)");
     logMsg(std::string(what));
 }
@@ -2388,10 +2479,36 @@ void App::removeImageLayer() {
     pushUndo();
     scene.image = ImageLayer{};
     dirty = true;
-    layerTool = LayerTool::None;
+    layerArmed = false;
+    layerAnchored = false;
     // La texture est détruite par la synchronisation de drawScene.
     setStatus("Calque d'image retiré");
     logMsg("Calque d'image retiré");
+}
+
+void App::applyLayerSymmetry(LayerHandleKind kind) {
+    if (scene.image.path.empty()) return;
+    pushUndo();
+    switch (kind) {
+        case LayerHandleKind::MirrorX:
+            scene.image.scaleX = -scene.image.scaleX;
+            setStatus("Calque : symétrie horizontale (miroir X)");
+            logMsg("Calque : symétrie horizontale");
+            break;
+        case LayerHandleKind::MirrorY:
+            scene.image.scaleY = -scene.image.scaleY;
+            setStatus("Calque : symétrie verticale (miroir Y)");
+            logMsg("Calque : symétrie verticale");
+            break;
+        case LayerHandleKind::MirrorBoth:
+            scene.image.scaleX = -scene.image.scaleX;
+            scene.image.scaleY = -scene.image.scaleY;
+            setStatus("Calque : symétrie centrale (miroir X/Y)");
+            logMsg("Calque : symétrie centrale");
+            break;
+        default: break;
+    }
+    dirty = true;
 }
 
 void App::fitLayerToView() {
@@ -2407,27 +2524,47 @@ void App::fitLayerToView() {
     setStatus("Calque ajusté à la vue");
 }
 
-void App::layerHandlePoints(std::vector<Vec2>& out) const {
-    out.clear();
+void App::layerRingHandles(std::vector<LayerHandleKind>& kinds,
+                           std::vector<Vec2>& worldPos) const {
+    kinds.clear();
+    worldPos.clear();
     const ImageLayer& il = scene.image;
     if (il.path.empty() || il.w <= 0 || il.h <= 0) return;
-    const float hw = il.w * il.scaleX * 0.5f;
-    const float hh = il.h * il.scaleY * 0.5f;
-    const float cs = std::cos(il.rotation);
-    const float sn = std::sin(il.rotation);
-    const Vec2 c = il.center;
-    // Rotation locale → monde : (x,y) ↦ c + (cs·x − sn·y, sn·x + cs·y).
-    // Milieux d'arêtes : gauche / droite (X) puis bas / haut (Y), puis les 4
-    // coins (Both) — l'ordre est celui attendu par beginLayerDrag (kSx/kSy).
-    out.push_back({c.x - cs * hw, c.y - sn * hw});                        // (-hw, 0)
-    out.push_back({c.x + cs * hw, c.y + sn * hw});                        // (+hw, 0)
-    out.push_back({c.x + sn * hh, c.y - cs * hh});                        // (0, -hh)
-    out.push_back({c.x - sn * hh, c.y + cs * hh});                        // (0, +hh)
-    out.push_back({c.x - cs * hw + sn * hh, c.y - sn * hw - cs * hh});    // (-hw, -hh)
-    out.push_back({c.x + cs * hw + sn * hh, c.y + sn * hw - cs * hh});    // (+hw, -hh)
-    out.push_back({c.x - cs * hw - sn * hh, c.y - sn * hw + cs * hh});    // (-hw, +hh)
-    out.push_back({c.x + cs * hw - sn * hh, c.y + sn * hw + cs * hh});    // (+hw, +hh)
+    // Rayons des zones (px écran) convertis en monde.
+    const float scaleR = 40.0f / std::max(camera.zoom, 1e-3f);
+    const float rotR   = 55.0f / std::max(camera.zoom, 1e-3f);
+    const float arrowR = 70.0f / std::max(camera.zoom, 1e-3f);
+    const Vec2 c = layerAnchored ? layerAnchor : Vec2{0, 0};
+    if (!layerAnchored) return;
+    // Centre : déplacement libre
+    kinds.push_back(LayerHandleKind::MoveFree);  worldPos.push_back(c);
+    // Échelle : carreaux aux 4 cardinaux (ScaleX E/W, ScaleY N/S)
+    static const float kCardAngles[] = {0.0f, 90.0f, 180.0f, 270.0f};
+    for (int i = 0; i < 4; ++i) {
+        const float rad = kCardAngles[i] * kPi / 180.0f;
+        const bool isX = (i == 0 || i == 2);
+        kinds.push_back(isX ? LayerHandleKind::ScaleX : LayerHandleKind::ScaleY);
+        worldPos.push_back({c.x + std::cos(rad) * scaleR, c.y + std::sin(rad) * scaleR});
+    }
+    // Échelle uniforme : diamants aux 4 diagonales
+    static const float kDiagAngles[] = {45.0f, 135.0f, 225.0f, 315.0f};
+    for (int i = 0; i < 4; ++i) {
+        const float rad = kDiagAngles[i] * kPi / 180.0f;
+        kinds.push_back(LayerHandleKind::ScaleBoth);
+        worldPos.push_back({c.x + std::cos(rad) * scaleR, c.y + std::sin(rad) * scaleR});
+    }
+    // Rotation : point sur l'anneau de rotation (55px)
+    kinds.push_back(LayerHandleKind::Rotate);
+    worldPos.push_back({c.x + rotR * 0.707f, c.y + rotR * 0.707f});
+    // Déplacement contraint : flèches aux 4 cardinaux (70px)
+    for (int i = 0; i < 4; ++i) {
+        const float rad = kCardAngles[i] * kPi / 180.0f;
+        const bool isX = (i == 0 || i == 2);
+        kinds.push_back(isX ? LayerHandleKind::MoveX : LayerHandleKind::MoveY);
+        worldPos.push_back({c.x + std::cos(rad) * arrowR, c.y + std::sin(rad) * arrowR});
+    }
 }
+
 
 // ---------------------------------------------------------------------------
 // Presse-papiers interne (5.8)
@@ -2816,6 +2953,10 @@ void App::pushUndo() {
     if (undoStack.size() > kMaxUndo) undoStack.erase(undoStack.begin());
     redoStack.clear();
     dirty = true;
+    // Filet de sécurité de l'enchaînement des découpes : toute nouvelle étape
+    // annulable (autre action, annulation…) clôt une chaîne de découpes en
+    // cours — applyCut la rouvre après son propre pushUndo (1re découpe).
+    cutChainUndo_ = false;
 }
 
 void App::undo() {
@@ -2824,6 +2965,7 @@ void App::undo() {
     scene = undoStack.back();
     undoStack.pop_back();
     if (redoStack.size() > kMaxUndo) redoStack.erase(redoStack.begin());
+    cutChainUndo_ = false;  // la scène annulée n'a plus de chaîne de découpes ouverte
     clearSelection();
     triP1 = triP2 = -1;
     dirty = true;
@@ -2835,6 +2977,7 @@ void App::redo() {
     undoStack.push_back(scene);
     scene = redoStack.back();
     redoStack.pop_back();
+    cutChainUndo_ = false;  // la scène rétablie n'a plus de chaîne de découpes ouverte
     clearSelection();
     triP1 = triP2 = -1;
     dirty = true;
@@ -2936,12 +3079,14 @@ void App::resetScene() {
     clearSelection();
     undoStack.clear();
     redoStack.clear();
+    cutChainUndo_ = false;  // l'historique est effacé : plus de chaîne de découpes
     currentFile.clear();
     sceneName.clear();
     triP1 = triP2 = -1;
     dirty = false;
     sceneTool = SceneTool::None;      // 8.5 : le mode scène se désarme aussi
-    layerTool = LayerTool::None;      // 7.7 : le calque (retiré avec la scène) aussi
+    layerArmed = false;
+    layerAnchored = false;      // 7.7 : le calque (retiré avec la scène) aussi
     lassoArmed = false;               // 5.9 : le lasso se désarme aussi
     lassoPts.clear();
     pipetteArmed = false;             // 6.5 : la pipette se désarme aussi
@@ -2962,7 +3107,7 @@ void App::onEscape() {
         return;
     }
     // Calque d'image (7.7) : Échap annule la saisie en cours puis désarme.
-    if (layerTool != LayerTool::None || isLayerDragging()) {
+    if (layerArmed || isLayerDragging()) {
         if (isLayerDragging()) {
             scene.image.center = drag_.layerStartCenter;
             scene.image.rotation = drag_.layerStartRot;
@@ -2971,7 +3116,8 @@ void App::onEscape() {
             if (!undoStack.empty()) undoStack.pop_back();
             drag_.kind = DragKind::None;
         }
-        layerTool = LayerTool::None;
+        layerArmed = false;
+        layerAnchored = false;
         setStatus("Manipulation du calque désarmée");
         return;
     }
@@ -3039,8 +3185,19 @@ void App::onEscape() {
             cutPts.clear();
             setStatus("Découpe annulée — Échap désarme l'outil");
         } else {
+            cutChainUndo_ = false;  // fin de la chaîne de découpes
             tool = Tool::Select;
             setStatus("Outil découpe désarmé");
+        }
+        return;
+    }
+    if (tool == Tool::Polygon) {
+        if (!polyPts.empty()) {
+            polyPts.clear();
+            setStatus("Polygone annulé — Échap désarme l'outil");
+        } else {
+            tool = Tool::Select;
+            setStatus("Outil polygone désarmé");
         }
         return;
     }
@@ -3150,6 +3307,7 @@ bool App::importJson(const std::string& path, bool replace) {
         triP1 = triP2 = -1;
         undoStack.clear();
         redoStack.clear();
+        cutChainUndo_ = false;  // la scène est remplacée : plus de chaîne de découpes
         dirty = false;
         cameraFramed = false;
         setStatus("Scène remplacée depuis « " + path + " »");
@@ -3180,6 +3338,7 @@ bool App::importMeshes(const std::string& path, bool replace) {
         triP1 = triP2 = -1;
         undoStack.clear();
         redoStack.clear();
+        cutChainUndo_ = false;  // la scène est remplacée : plus de chaîne de découpes
         dirty = false;
         cameraFramed = false;
         setStatus("Scène remplacée depuis « " + path + " »");
@@ -3239,6 +3398,7 @@ bool App::importObj(const std::string& path, bool replace) {
         triP1 = triP2 = -1;
         undoStack.clear();
         redoStack.clear();
+        cutChainUndo_ = false;  // la scène est remplacée : plus de chaîne de découpes
         dirty = false;
         cameraFramed = false;
         setStatus("Scène remplacée depuis « " + path + " » (" +
@@ -3282,6 +3442,7 @@ void App::savePrefsFile() {
     p.circleSides = circleSides;
     p.crownInnerSides = crownInnerSides;
     p.edgePickTol = edgePickTol;
+    p.vertexPickTol = vertexPickTol;
     p.mergeRadius = mergeRadius;
     p.locations = saveLocations;
     p.importMode = dlgImportReplace ? 0 : 1;
@@ -3307,6 +3468,7 @@ void App::loadPrefsFile() {
     p.circleSides = circleSides;
     p.crownInnerSides = crownInnerSides;
     p.edgePickTol = edgePickTol;
+    p.vertexPickTol = vertexPickTol;
     p.locations = saveLocations;
     p.bgColor = bgColor;
     const IoResult r = loadPrefsJson(p, prefsDir() + "prefs.json");
@@ -3315,7 +3477,8 @@ void App::loadPrefsFile() {
     brushOpacity = p.brushOpacity;
     circleSides = p.circleSides;
     crownInnerSides = std::clamp(p.crownInnerSides, 3, 64);
-    edgePickTol = std::clamp(p.edgePickTol, 2.0f, 30.0f);
+    edgePickTol = std::clamp(p.edgePickTol, 2.0f, 150.0f);
+    vertexPickTol = std::clamp(p.vertexPickTol, 2.0f, 150.0f);
     mergeRadius = std::clamp(p.mergeRadius, 8, 64);
     saveLocations = p.locations;
     dlgImportReplace = (p.importMode == 0);
@@ -3517,6 +3680,16 @@ void App::updateHoverHelp(const Vec2& mouseWorld) {
                      ? "Clic gauche : 1er sommet du polygone de découpe"
                      : "Clic gauche : sommet suivant (re-clic près du 1er point : fermer "
                        "et découper) · clic droit / Entrée : découper · Retour arrière : "
+                       "dernier point",
+                 0.5f);
+        return;
+    }
+    // Outil polygone : guide la phase du tracé.
+    if (tool == Tool::Polygon) {
+        setToast(polyPts.empty()
+                     ? "Clic gauche : 1er sommet du polygone"
+                     : "Clic gauche : sommet suivant (re-clic près du 1er point : fermer "
+                       "et trianguler) · clic droit / Entrée : valider · Retour arrière : "
                        "dernier point",
                  0.5f);
         return;
@@ -3957,6 +4130,10 @@ void App::drawDragPreview() {
         drawCutPreview();
         return;
     }
+    if (tool == Tool::Polygon && !polyPts.empty()) {
+        drawPolygonPreview();
+        return;
+    }
     if (drag_.kind == DragKind::Shape) {
         drawShapeOutline();
         return;
@@ -4040,6 +4217,46 @@ void App::drawCutPreview() {
         }
     }
     renderer.drawPoints(cutPts, 6.0f, kPreview);
+    renderer.drawPoints({cur}, 6.0f, kVertHover);
+}
+
+// Aperçu de l'outil polygone : identique à drawCutPreview mais avec polyPts.
+void App::drawPolygonPreview() {
+    const ImGuiIO& io = ImGui::GetIO();
+    const Vec2 ms{io.MousePos.x - viewportPos.x, io.MousePos.y - viewportPos.y};
+    const Vec2 mw = camera.screenToWorld(ms, viewportVec2());
+    const Vec2 cur = snappedPoint(mw);
+
+    std::vector<Vec2> poly = polyPts;
+    poly.push_back(cur);
+
+    // Contour : segments consécutifs + fermeture vers le 1er point.
+    std::vector<Vec2> segs;
+    segs.reserve(poly.size() * 2 + 2);
+    for (size_t i = 0; i + 1 < poly.size(); ++i) {
+        segs.push_back(poly[i]);
+        segs.push_back(poly[i + 1]);
+    }
+    if (polyPts.size() >= 2) {
+        segs.push_back(poly.back());
+        segs.push_back(poly.front());
+    }
+    // Vert pour le polygone (distinct du cyan de la découpe).
+    const Color kPolyPreview{0.30f, 0.95f, 0.45f, 0.95f};
+    const Color kPolyPreviewFill{0.30f, 0.95f, 0.45f, 0.16f};
+    renderer.drawLines(segs, kPolyPreview);
+
+    // Remplissage translucide du polygone (quand il est fermable).
+    if (poly.size() >= 3) {
+        std::vector<int> tris;
+        if (triangulatePolygon(poly, tris)) {
+            std::vector<Vec2> fill;
+            fill.reserve(tris.size());
+            for (int k : tris) fill.push_back(poly[k]);
+            renderer.drawTriangles(fill, kPolyPreviewFill);
+        }
+    }
+    renderer.drawPoints(polyPts, 6.0f, kPolyPreview);
     renderer.drawPoints({cur}, 6.0f, kVertHover);
 }
 

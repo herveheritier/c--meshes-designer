@@ -181,8 +181,30 @@ bool triangulatePolygon(const std::vector<Vec2>& pts, std::vector<int>& tris) {
 
     int guard = 0;
     while (idx.size() > 3) {
-        bool clipped = false;
-        for (size_t k = 0; k < idx.size() && !clipped; ++k) {
+        // « Meilleure oreille » : on coupe l'oreille valide dont le triangle
+        // a le plus grand ANGLE MINIMAL (le plus proche de l'équilatéral) ;
+        // égalité (à une petite tolérance près) → le sommet le plus proche du
+        // MILIEU de la boucle courante. Couper la PREMIÈRE oreille valide dans
+        // l'ordre de la boucle dégénérait en éventail dès que le polygone
+        // était convexe : tous les triangles partageaient le même sommet et
+        // les plus éloignés devenaient très allongés. L'angle minimal répartit
+        // les sommets entre les triangles ; le départage « milieu de boucle »
+        // produit le motif en zigzag optimal sur les polygones réguliers :
+        // chaque sommet n'apparaît que dans ~3 triangles, jamais dans tous.
+        //
+        // NB : maximiser le MINIMUM des trois angles du triangle est le
+        // critère standard « best ear » (Delaunay-like). La tolérance d'angle
+        // regroupe les oreilles identiques en théorie mais distinctes au bruit
+        // flottant près (les cosinus ne sont pas exactement égaux) ; sans
+        // elle, l'ordre de parcours re-fabriquait l'éventail. Le « milieu de
+        // boucle » est décisif sur les polygones symétriques (octogone
+        // régulier…) où tous les angles sont égaux.
+        constexpr float kAngTol = 1e-4f;  // radians : regroupe les oreilles ~égales
+        const int sz = (int)idx.size();
+        int bestK = -1;
+        float bestAng = -1.0f;   // meilleur angle minimal (radians)
+        float bestMid = 1e9f;    // distance au milieu de la boucle (départage)
+        for (size_t k = 0; k < idx.size(); ++k) {
             const int ia = idx[(k + idx.size() - 1) % idx.size()];
             const int ib = idx[k];
             const int ic = idx[(k + 1) % idx.size()];
@@ -201,17 +223,35 @@ bool triangulatePolygon(const std::vector<Vec2>& pts, std::vector<int>& tris) {
                 if (pointInTriangle(pts[v], pts[ia], pts[ib], pts[ic])) { blocked = true; break; }
             }
             if (blocked) continue;
-            // Oreille valide : on la coupe.
-            tris.push_back(ia);
-            tris.push_back(ib);
-            tris.push_back(ic);
-            idx.erase(idx.begin() + (long)k);
-            clipped = true;
-            // Le pont (double arête) peut réunir deux sommets jumeaux : on
-            // fond les coïncidents devenus consécutifs.
-            if (idx.size() > 3) mergeCoincident(idx, pts);
+            // Angle minimal du triangle : acos sur les trois angles (loi des
+            // cosinus), borné pour la robustesse. Aire = |cr|/2 (départage).
+            const Vec2 ba = pts[ia] - pts[ib];
+            const Vec2 cb = pts[ic] - pts[ib];
+            const Vec2 ac = pts[ic] - pts[ia];
+            const float lab = std::sqrt(dot(ba, ba));
+            const float lbc = std::sqrt(dot(cb, cb));
+            const float lca = std::sqrt(dot(ac, ac));
+            float angMin = 3.14159265358979f;
+            auto angleAt = [&](const Vec2& u, const Vec2& v, float lu, float lv) {
+                if (lu < 1e-9f || lv < 1e-9f) return 0.0f;
+                return std::acos(std::clamp(dot(u, v) / (lu * lv), -1.0f, 1.0f));
+            };
+            angMin = std::min(angMin, angleAt(pts[ia] - pts[ib], pts[ic] - pts[ib], lab, lbc));
+            angMin = std::min(angMin, angleAt(pts[ib] - pts[ia], pts[ic] - pts[ia], lab, lca));
+            angMin = std::min(angMin, angleAt(pts[ib] - pts[ic], pts[ia] - pts[ic], lbc, lca));
+            // Distance (en indices) du sommet de l'oreille au milieu de la
+            // boucle courante : départage qui force le motif en zigzag sur
+            // les polygones réguliers (on « pèle » depuis le centre de la
+            // boucle au lieu de toujours repartir du même coin).
+            const float mid = std::fabs((float)k - (float)(sz - 1) * 0.5f);
+            if (bestK < 0 || angMin > bestAng + kAngTol ||
+                (angMin >= bestAng - kAngTol && mid < bestMid)) {
+                bestAng = angMin;
+                bestMid = mid;
+                bestK = (int)k;
+            }
         }
-        if (!clipped) {
+        if (bestK < 0) {
             // Polygone dégénéré ou auto-sécant : repli en éventail.
             tris.clear();
             for (int i = 1; i + 1 < (int)idx.size(); ++i) {
@@ -221,6 +261,18 @@ bool triangulatePolygon(const std::vector<Vec2>& pts, std::vector<int>& tris) {
             }
             return false;
         }
+        // Coupe la meilleure oreille.
+        const size_t k = (size_t)bestK;
+        const int ia = idx[(k + idx.size() - 1) % idx.size()];
+        const int ib = idx[k];
+        const int ic = idx[(k + 1) % idx.size()];
+        tris.push_back(ia);
+        tris.push_back(ib);
+        tris.push_back(ic);
+        idx.erase(idx.begin() + (long)k);
+        // Le pont (double arête) peut réunir deux sommets jumeaux : on fond
+        // les coïncidents devenus consécutifs.
+        if (idx.size() > 3) mergeCoincident(idx, pts);
         if (++guard > n * n) return false;
     }
     tris.push_back(idx[0]);
@@ -462,6 +514,40 @@ bool subtractPolygon(const std::vector<Vec2>& subject, const std::vector<Vec2>& 
     }
     if (!droppedS && !keptO) return false;  // simple contact sans surface retirée
     if (segs.empty()) return true;          // entièrement recouvert : résultat vide
+
+    // --- Annulation des arêtes internes ---
+    // Les zones de recouvrement sont issues des triangles de la découpe : deux
+    // zones voisines partagent une arête (diagonale) qui apparaît donc DEUX
+    // fois dans `segs`, en sens opposés. Ces arêtes internes ne font pas
+    // partie de la frontière du résultat et doivent être retirées — sinon le
+    // tracé des boucles se perd aux nœuds ambigus et une découpe de coin qui
+    // déborde du sujet renvoyait un résultat vide.
+    //
+    // NB : la tolérance est volontairement plus stricte que celle du tracé de
+    // boucles (1e-6 ici, 1e-4 là-bas) : une diagonale partagée réutilise
+    // exactement les mêmes valeurs flottantes, donc 1e-6 suffit et évite
+    // d'annuler à tort deux arêtes de frontière voisines mais distinctes.
+    {
+        const float seps = 1e-6f;
+        std::vector<bool> drop(segs.size(), false);
+        for (size_t i = 0; i < segs.size(); ++i) {
+            if (drop[i]) continue;
+            for (size_t j = i + 1; j < segs.size(); ++j) {
+                if (drop[j]) continue;
+                if (distance(segs[i].a, segs[j].b) < seps &&
+                    distance(segs[i].b, segs[j].a) < seps) {
+                    drop[i] = drop[j] = true;  // même arête, sens opposés : interne
+                    break;
+                }
+            }
+        }
+        std::vector<BoundSeg> kept;
+        kept.reserve(segs.size());
+        for (size_t i = 0; i < segs.size(); ++i)
+            if (!drop[i]) kept.push_back(segs[i]);
+        segs.swap(kept);
+    }
+    if (segs.empty()) return true;  // frontière entièrement doublée : dégénéré → couvert
 
     // --- Tracé des boucles : à chaque nœud on continue sur la même courbe
     // quand c'est possible (point de contact), sinon on bascule (croisement). ---

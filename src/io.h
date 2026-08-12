@@ -71,6 +71,7 @@ struct PrefsData {
     int circleSides = 16;
     int crownInnerSides = 8;             // côtés intérieurs de la couronne (4.2)
     float edgePickTol = 7.0f;            // distance de détection des segments (px)
+    float vertexPickTol = 8.0f;          // distance de détection des sommets (px)
     int mergeRadius = 20;                 // rayon de fusion par déplacement, px (8..64)
     std::vector<std::string> locations;   // emplacements d'enregistrement (20 max)
     int importMode = 0;                   // 0 = remplacer, 1 = fusionner

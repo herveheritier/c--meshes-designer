@@ -207,7 +207,8 @@ bool Mesh2D::cutPolygon(const std::vector<Vec2>& cut) {
         return (int)newVerts.size() - 1;
     };
 
-    for (const Face& f : faces) {
+    for (int fi = 0; fi < (int)faces.size(); ++fi) {
+        const Face& f = faces[(size_t)fi];
         if ((int)f.verts.size() < 3) continue;
         std::vector<Vec2> facePts;
         facePts.reserve(f.verts.size());

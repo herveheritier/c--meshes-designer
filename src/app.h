@@ -18,8 +18,8 @@ namespace mesh {
 // Cible d'édition : sommet / segment / triangle (4.4).
 enum class SelMode { Vertex, Edge, Face };
 // Outils : sélection + formes prédéfinies (4.2) + découpe (polygone soustrait).
-enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown, Cut };
-inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut; }
+enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown, Cut, Polygon };
+inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut && t != Tool::Polygon; }
 
 // Réticules (9.2) : Off → Simple (croix de visée) → Symmetric (croix pleine
 // grandeur) → Mirror (reflets du curseur à travers les axes du monde).
@@ -29,14 +29,24 @@ enum class PreviewMode { Off, Simple, Planes };
 // Mode « Scène » (8.5) : manipulation de TOUS les plans à la souris.
 enum class SceneTool { None, Grab, Rotate, Scale };
 // Calque d'image de fond (7.7) : manipulation de l'image à la souris.
-enum class LayerTool { None, Move, Rotate, Scale };
-// Poignées du mode Échelle du calque : axe X (bords gauche/droit), axe Y
-// (bords haut/bas) ou les deux axes (coins) — l'arête/coin opposé reste fixe.
-enum class LayerHandle { None, X, Y, Both };
+// Poignées de l'anneau de manipulation unifié autour du curseur.
+enum class LayerHandleKind {
+    None,
+    MoveFree,     // centre : glisser librement le calque
+    MoveX,        // flèches horizontales : glisser le calque en X
+    MoveY,        // flèches verticales : glisser le calque en Y
+    Rotate,       // anneau : pivoter le calque autour de son centre
+    ScaleX,       // poignées horizontales : largeur seule
+    ScaleY,       // poignées verticales : hauteur seule
+    ScaleBoth,    // poignées diagonales : les deux axes, rapport x/y conservé
+    MirrorX,      // clic : symétrie horizontale du calque
+    MirrorY,      // clic : symétrie verticale du calque
+    MirrorBoth,   // clic : symétrie centrale (X et Y) du calque
+};
 
 // --- Drag en cours ---
 enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale,
-                      LayerMove, LayerRotate, LayerScale, Lasso };
+                      LayerHandle, Lasso };
 
 struct Drag {
     DragKind kind = DragKind::None;
@@ -58,9 +68,9 @@ struct Drag {
     // annuler proprement et détecter un glisser sans effet).
     Vec2 layerStartCenter{0, 0};
     float layerStartRot = 0.0f, layerStartSx = 1.0f, layerStartSy = 1.0f;
-    // Échelle du calque par poignée : poignée saisie et position locale de
-    // cette poignée (±hw, ±hh dans le repère de départ) pour ancrer l'échelle.
-    LayerHandle layerHandle = LayerHandle::None;
+    // Poignée saisie dans l'anneau unifié : type + position locale de la
+    // poignée (±hw, ±hh dans le repère de départ) pour ancrer l'échelle.
+    LayerHandleKind layerHandleKind = LayerHandleKind::None;
     Vec2 layerHandleLocal{0, 0};
     // Tracé de forme : 0 prêt · 1 ancre posée · 2 verrouillé (étoile/anneau)
     int shapeStage = 0;
@@ -95,11 +105,18 @@ public:
     static constexpr float kSceneScalePerPx = 0.005f;
 
     // --- Calque d'image de fond (7.7) ---
-    // Outil armé depuis le popup « Calque » : le canvas sert alors à déplacer /
-    // pivoter / redimensionner l'image (clic droit ou Échap désarme), comme le
-    // mode Scène pour les plans. L'état du calque (chemin, transformée,
-    // opacité) vit dans scene.image et est persisté dans le JSON de scène.
-    LayerTool layerTool = LayerTool::None;
+    // Mode unifié armé depuis le popup « Calque » : un anneau de poignées
+    // apparaît autour du curseur (déplacement, rotation, échelle, symétrie).
+    // Clic gauche sur le canvas ancre l'anneau ; clic droit ou Échap désarme.
+    // L'état du calque (chemin, transformée, opacité) vit dans scene.image et
+    // est persisté dans le JSON de scène.
+    bool layerArmed = false;
+    // Position monde où l'anneau est ancré (après le clic) ; tant que
+    // layerAnchored est faux, l'anneau suit le curseur.
+    Vec2 layerAnchor{0, 0};
+    bool layerAnchored = false;
+    // Poignée survolée (pour mise en évidence + infobulle).
+    LayerHandleKind layerHover = LayerHandleKind::None;
     // Texture GL de l'image décodée (0 = aucune) ; la synchronisation avec
     // scene.image.path (chargement / déchargement) se fait dans drawScene.
     unsigned imageTex = 0;
@@ -151,6 +168,9 @@ public:
     // Distance (pixels écran) de détection des segments (survol + accroche +
     // sélection en mode « segment »). Réglable dans le panneau « Réglages ».
     float edgePickTol = 7.0f;
+    // Distance (pixels écran) de détection des sommets (survol + sélection en
+    // mode « sommet »). Réglable dans le panneau « Réglages ».
+    float vertexPickTol = 8.0f;
 
     // --- Construction de triangle (4.1) : sommets partiels en cours ---
     int triP1 = -1;
@@ -187,11 +207,24 @@ public:
 
     // --- Outil découpe (polygone soustrait au plan actif) ---
     std::vector<Vec2> cutPts;           // sommets du polygone de découpe en cours
+    // Enchaînement des découpes : tant que l'outil reste armé, chaque découpe
+    // appliquée s'ajoute à la MÊME étape annulable — l'historique n'est poussé
+    // qu'à la 1re découpe de la chaîne. Passe à faux dès que la chaîne se
+    // termine (désarmement, changement d'outil, annulation, scène remplacée…).
+    bool cutChainUndo_ = false;
     bool isCutArmed() const { return tool == Tool::Cut; }
     bool isCutTracing() const { return tool == Tool::Cut && !cutPts.empty(); }
     void toggleCutTool();               // arme / désarme l'outil découpe (D)
     void applyCut();                    // ferme le polygone et soustrait (Entrée / clic droit)
     void removeLastCutPoint();          // Retour arrière pendant le tracé
+
+    // --- Outil polygone (trace → triangulation automatique dans le plan actif) ---
+    std::vector<Vec2> polyPts;          // sommets du polygone en cours de tracé
+    bool isPolygonArmed() const { return tool == Tool::Polygon; }
+    bool isPolygonTracing() const { return tool == Tool::Polygon && !polyPts.empty(); }
+    void togglePolygonTool();           // arme / désarme l'outil polygone (U)
+    void applyPolygon();                // ferme le polygone et le triangule dans le plan
+    void removeLastPolygonPoint();      // Retour arrière pendant le tracé
 
     // --- Outil mesure ---
     bool measureActive = false;
@@ -394,22 +427,24 @@ public:
     void applySceneDrag(const Vec2& world, const Vec2& screen);
 
     // --- Calque d'image (7.7) ---
-    void toggleLayerTool(LayerTool t);   // arme / désarme l'outil calque
+    void toggleLayerMode();              // arme / désarme le mode calque unifié
     bool isLayerDragging() const;        // saisie du calque en cours
     void beginLayerDrag(const Vec2& world, const Vec2& screen);
     void applyLayerDrag(const Vec2& world, const Vec2& screen);
     void endLayerDrag();
+    // Poignées monde de l'anneau autour de layerAnchor (pour le rendu + survol).
+    void layerRingHandles(std::vector<LayerHandleKind>& kinds,
+                          std::vector<Vec2>& worldPos) const;
     // Charge le fichier image (PNG/JPEG) : décode, crée la texture, dimensionne
     // le calque à ~la moitié de la vue. Échec → statut + false (calque intact).
     bool loadImageLayer(const std::string& path);
     // Retire le calque (une étape annulable).
     void removeImageLayer();
+    // Symétrie instantanée du calque (miroir X, Y ou les deux).
+    void applyLayerSymmetry(LayerHandleKind kind);
     // Réajuste la taille du calque à ~la moitié de la vue (une étape annulable).
     void fitLayerToView();
-    // Poignées du mode Échelle : les 8 points monde des poignées du calque
-    // (4 milieux d'arêtes : gauche/droite = X, haut/bas = Y ; 4 coins = Both),
-    // dans le repère courant — pour l'affichage (ui.cpp) et la saisie.
-    void layerHandlePoints(std::vector<Vec2>& out) const;
+
     void endSceneDrag();
     bool isSceneDragging() const {
         return drag_.kind == DragKind::SceneGrab || drag_.kind == DragKind::SceneRotate ||
@@ -529,6 +564,7 @@ private:
     void drawMeasureVisual();
     void drawDragPreview();
     void drawCutPreview();
+    void drawPolygonPreview();
     void drawShapeOutline();
     void drawMergeVisuals();
     void drawCircleLines(const Vec2& c, float radPx, const Color& col, int segs);
