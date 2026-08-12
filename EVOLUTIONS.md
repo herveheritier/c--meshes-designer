@@ -31,7 +31,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · `<commit>` — Sélection au lasso (5.10) : bouton « Lasso » du paquet
+- 2026-08-12 · `64e93f8` — Sélection au lasso (5.10) : bouton « Lasso » du paquet
   Sélection — tracer librement un contour au canvas (polygone affiché en
   direct, échantillonné tous les ~6 px écran) puis sélectionner d'un coup les
   sommets (position), segments (milieu) ou triangles (centre) du plan actif
