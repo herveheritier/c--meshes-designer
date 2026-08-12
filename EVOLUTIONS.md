@@ -28,7 +28,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · `<commit>` — Opacité par plan (7.8) : chaque plan a sa propre
+- 2026-08-12 · `bd6668b` — Opacité par plan (7.8) : chaque plan a sa propre
   transparence, indépendante de celle des faces — le bouton « Opacité » du
   groupe Plans ouvre un curseur pour le plan actif, la molette sur le bouton
   ajuste par pas de 5 % (une salve = une étape annulable). L'opacité multiplie
