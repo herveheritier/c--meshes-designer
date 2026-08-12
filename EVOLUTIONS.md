@@ -35,7 +35,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · Mode filaire (7.6) : le bouton d'affichage des plans fait
+- 2026-08-12 · `8400bc2` — Mode filaire (7.6) : le bouton d'affichage des plans fait
   désormais défiler trois modes — rendu normal, toutes couleurs, puis filaire
   (arêtes seules, sans remplissage, pour voir la structure de toute la scène à
   travers les plans superposés). L'icône et l'infobulle du bouton suivent le
