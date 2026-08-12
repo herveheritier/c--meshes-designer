@@ -26,7 +26,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 (à venir) - Prévisualisation « Plans » sans contours : dans le
+- 2026-08-12 (5f6c54c) - Prévisualisation « Plans » sans contours : dans le
   mode œil, l'état « tous les plans » rend les plans remplis de leurs couleurs
   sans tracer de contours — ni périmètre des plans, ni arêtes internes des
   triangles — pour une vue de composition épurée (l'état « aperçu simple »
