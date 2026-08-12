@@ -18,8 +18,7 @@ constexpr float kBasePxPerUnit = 40.0f;   // zoom ×1 = 40 px/unité
 constexpr float kMinZoomPx = 4.0f;        // ×0.1
 constexpr float kMaxZoomPx = 400.0f;      // ×10
 
-// Couleurs de la scène
-const Color kBg{0.078f, 0.086f, 0.102f, 1.0f};
+// Couleurs de la scène (le fond du canvas est pilotable : bgColor, 8.5).
 const Color kGridMinor{1.0f, 1.0f, 1.0f, 0.055f};
 const Color kGridMajor{1.0f, 1.0f, 1.0f, 0.13f};
 const Color kAxisX{0.92f, 0.30f, 0.30f, 0.75f};
@@ -161,6 +160,8 @@ void App::newDocument() {
     sceneName.clear();
     triP1 = triP2 = -1;
     dirty = false;
+    sceneTool = SceneTool::None;
+    bgColor = kBgDefault;
     camera.reset();
     cameraFramed = false;
     rotDeg = 0.0f;
@@ -334,8 +335,8 @@ void App::update(float dt) {
             } else {
                 circleSides = std::clamp(circleSides + (int)std::lround(io.MouseWheel), 3, 64);
             }
-        } else if (drag_.kind == DragKind::None && tool == Tool::Select &&
-                   selectionVertices().size() >= 2) {
+        } else if (sceneTool == SceneTool::None && drag_.kind == DragKind::None &&
+                   tool == Tool::Select && selectionVertices().size() >= 2) {
             if (!rotUndoPushed_) {
                 pushUndo();
                 rotUndoPushed_ = true;
@@ -357,6 +358,27 @@ void App::update(float dt) {
 
     // Hors du viewport : ne rien faire sauf si un drag est en cours.
     if (!viewportHovered && drag_.kind == DragKind::None) return;
+
+    // --- Mode « Scène » (8.5) : saisir / pivoter / redimensionner TOUS les
+    // plans ensemble. L'outil armé monopolise le canvas : clic gauche + glisser
+    // applique la transformation, clic droit désarme. Molette (zoom) et clic du
+    // milieu (pan) restent des navigations de vue, traitées plus haut.
+    if (sceneTool != SceneTool::None) {
+        if (isSceneDragging()) {
+            if (io.MouseDown[0]) {
+                applySceneDrag(mouseWorld, mouseScreen);
+            } else {
+                endSceneDrag();
+            }
+        } else if (drag_.kind == DragKind::None) {
+            if (io.MouseClicked[0]) {
+                beginSceneDrag(mouseWorld, mouseScreen);
+            } else if (io.MouseClicked[1]) {
+                toggleSceneTool(SceneTool::None);  // clic droit : désarmer
+            }
+        }
+        return;
+    }
 
     // Survol (mode sommets) : sommet le plus proche d'abord, sinon le segment
     // le plus proche (il s'illumine : un clic y accrochera un nouveau sommet
@@ -547,6 +569,14 @@ void App::update(float dt) {
             }
         } else if (drag_.kind == DragKind::None) {
             if (brushArmed) {
+                // 6.2 : avec des triangles sélectionnés (cible « triangle »),
+                // tous sont peints d'un coup ; sans sélection, seul le
+                // triangle cliqué l'est.
+                if (!selFaces.empty()) {
+                    pushUndo();
+                    paintFaces(selFaces);
+                    return;
+                }
                 const int fi = pickFace(mouseWorld);
                 if (fi >= 0) {
                     pushUndo();
@@ -574,7 +604,7 @@ void App::drawScene() {
     const float halfH = vh / (2.0f * camera.zoom);
     renderer.setProjection(camera.cx - halfW, camera.cx + halfW, camera.cy - halfH,
                            camera.cy + halfH);
-    renderer.clear(kBg);
+    renderer.clear(bgColor);
 
     // Kiosque : la scène d'édition reste visible DERRIÈRE le voile plein écran
     // dessiné par l'interface (ui.cpp). Aucune édition n'est possible (update()
@@ -1644,6 +1674,192 @@ void App::rotateAllPlanesAround(const Vec2& pivot, float deg) {
 }
 
 // ---------------------------------------------------------------------------
+// Mode Scène (8.5) : saisir / pivoter / redimensionner TOUS les plans
+// ---------------------------------------------------------------------------
+// L'entier de préférence PrefsData::sceneTool suit l'ordre de l'enum
+// (0 = aucun, 1 = saisir, 2 = rotation, 3 = échelle) : verrouillé ici pour que
+// io.h / io.cpp / app.cpp ne dérivent pas silencieusement si un outil est ajouté.
+static_assert((int)SceneTool::None == 0 && (int)SceneTool::Grab == 1 &&
+              (int)SceneTool::Rotate == 2 && (int)SceneTool::Scale == 3,
+              "PrefsData::sceneTool (io.h) doit suivre l'ordre de SceneTool");
+
+void App::toggleSceneTool(SceneTool t) {
+    if (sceneTool == t) {
+        sceneTool = SceneTool::None;
+        setStatus("Mode scène désarmé");
+        return;
+    }
+    // Un geste en cours est d'abord terminé ou annulé proprement, sinon le
+    // mode scène (qui monopolise le canvas) le laisserait gelé : une saisie
+    // scène se termine (elle sera annulée si rien n'a bougé), un drag
+    // d'édition (Move/MoveAll/Shape) restaure ses positions de départ et
+    // retire son étape annulable.
+    if (isSceneDragging()) {
+        endSceneDrag();
+    } else if (drag_.kind == DragKind::Move) {
+        const size_t n = scene.activePlane().vertices.size();
+        for (size_t i = 0; i < drag_.movingVerts.size(); ++i) {
+            const int v = drag_.movingVerts[i];
+            if (v >= 0 && (size_t)v < n)
+                scene.activePlane().vertices[v] = drag_.startPositions[i];
+        }
+        if (!undoStack.empty()) undoStack.pop_back();
+        drag_.kind = DragKind::None;
+    } else if (drag_.kind == DragKind::MoveAll) {
+        for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+            const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+            const size_t n = std::min(scene.planes[i].vertices.size(), start.size());
+            for (size_t j = 0; j < n; ++j) scene.planes[i].vertices[j] = start[j];
+        }
+        if (!undoStack.empty()) undoStack.pop_back();
+        drag_.kind = DragKind::None;
+    } else if (drag_.kind == DragKind::Shape) {
+        cancelShapeTrace();
+    } else {
+        drag_.kind = DragKind::None;
+    }
+    // Le canvas est entièrement dédié au mode scène : les modes souris
+    // transitoires (pinceau, mesure, fusion, tracés) se désarment, l'outil
+    // revient à la sélection.
+    if (t != SceneTool::None) {
+        brushArmed = false;
+        measureActive = false;
+        mergeMode = MergeMode::Off;
+        cutPts.clear();
+        triP1 = triP2 = -1;
+        if (tool != Tool::Select) {
+            tool = Tool::Select;
+            setStatus("Mode scène : les outils d'édition sont désarmés");
+        }
+    }
+    sceneTool = t;
+    switch (t) {
+        case SceneTool::Grab:
+            setStatus("Saisie de la scène armée — clic gauche + glisser : déplacer tous "
+                      "les plans · clic droit ou Échap : désarmer");
+            break;
+        case SceneTool::Rotate:
+            setStatus("Rotation de la scène armée — clic gauche + glisser horizontal : "
+                      "pivoter tous les plans autour du point de saisie · clic droit ou "
+                      "Échap : désarmer");
+            break;
+        case SceneTool::Scale:
+            setStatus("Mise à l'échelle de la scène armée — clic gauche + glisser "
+                      "vertical : agrandir (vers le bas) / réduire (vers le haut) autour "
+                      "du point de saisie · clic droit ou Échap : désarmer");
+            break;
+        default:
+            // Désarmement par clic droit au canvas (t == None) : retour d'état.
+            setStatus("Mode scène désarmé");
+            break;
+    }
+}
+
+void App::scaleAllPlanesAround(const Vec2& pivot, float factor) {
+    if (factor <= 0.0f || std::fabs(factor - 1.0f) < 1e-5f) return;
+    for (Mesh2D& p : scene.planes) {
+        for (Vec2& v : p.vertices) {
+            const Vec2 d = v - pivot;
+            v = {pivot.x + d.x * factor, pivot.y + d.y * factor};
+        }
+    }
+}
+
+void App::beginSceneDrag(const Vec2& world, const Vec2& screen) {
+    if (sceneTool == SceneTool::None) return;
+    pushUndo();
+    drag_.allPlaneStarts.clear();
+    drag_.allPlaneStarts.reserve(scene.planes.size());
+    for (const Mesh2D& p : scene.planes) drag_.allPlaneStarts.push_back(p.vertices);
+    drag_.sceneAnchor = world;
+    drag_.sceneStartScreen = screen;
+    drag_.sceneStartDeg = rotDeg;
+    switch (sceneTool) {
+        case SceneTool::Grab: drag_.kind = DragKind::SceneGrab; break;
+        case SceneTool::Rotate: drag_.kind = DragKind::SceneRotate; break;
+        case SceneTool::Scale: drag_.kind = DragKind::SceneScale; break;
+        default: break;
+    }
+}
+
+void App::applySceneDrag(const Vec2& world, const Vec2& screen) {
+    // On restaure d'abord les positions de départ, puis on applique la
+    // transformation courante : l'état reste déterministe à chaque frame
+    // (aucune dérive d'arrondi, relâcher puis re-saisir repart de zéro).
+    for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+        const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+        Mesh2D& p = scene.planes[i];
+        const size_t n = std::min(p.vertices.size(), start.size());
+        for (size_t j = 0; j < n; ++j) p.vertices[j] = start[j];
+    }
+    switch (sceneTool) {
+        case SceneTool::Grab: {
+            Vec2 delta = world - drag_.sceneAnchor;
+            if (snapOn) delta = snapDelta(delta);
+            for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+                const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+                Mesh2D& p = scene.planes[i];
+                const size_t n = std::min(p.vertices.size(), start.size());
+                for (size_t j = 0; j < n; ++j) p.vertices[j] = start[j] + delta;
+            }
+            break;
+        }
+        case SceneTool::Rotate: {
+            const float deg = (screen.x - drag_.sceneStartScreen.x) * kSceneDegPerPx;
+            rotDeg = drag_.sceneStartDeg + deg;  // angle cumulé affiché au HUD
+            const float rad = deg * kPi / 180.0f;
+            const float cs = std::cos(rad);
+            const float sn = std::sin(rad);
+            for (Mesh2D& p : scene.planes) {
+                for (Vec2& v : p.vertices) {
+                    const Vec2 d = v - drag_.sceneAnchor;
+                    v = {drag_.sceneAnchor.x + d.x * cs - d.y * sn,
+                         drag_.sceneAnchor.y + d.x * sn + d.y * cs};
+                }
+            }
+            break;
+        }
+        case SceneTool::Scale: {
+            const float factor =
+                std::exp((screen.y - drag_.sceneStartScreen.y) * kSceneScalePerPx);
+            scaleAllPlanesAround(drag_.sceneAnchor, factor);
+            break;
+        }
+        default: break;
+    }
+}
+
+void App::endSceneDrag() {
+    const DragKind k = drag_.kind;
+    if (k != DragKind::SceneGrab && k != DragKind::SceneRotate && k != DragKind::SceneScale)
+        return;
+    bool changed = false;
+    for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+        const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+        const Mesh2D& p = scene.planes[i];
+        const size_t n = std::min(p.vertices.size(), start.size());
+        for (size_t j = 0; j < n; ++j) {
+            if (distance(p.vertices[j], start[j]) > 1e-6f) {
+                changed = true;
+                break;
+            }
+        }
+        if (changed) break;
+    }
+    drag_.kind = DragKind::None;
+    if (!changed) {
+        if (!undoStack.empty()) undoStack.pop_back();  // clic sans glisser : pas d'étape
+        setStatus("Mode scène : aucun déplacement");
+        return;
+    }
+    const char* what = (k == DragKind::SceneGrab)    ? "Tous les plans déplacés"
+                     : (k == DragKind::SceneRotate)  ? "Tous les plans pivotés"
+                                                     : "Tous les plans mis à l'échelle";
+    setStatus(std::string(what) + " (mode scène)");
+    logMsg(std::string(what));
+}
+
+// ---------------------------------------------------------------------------
 // Presse-papiers interne (5.8)
 // ---------------------------------------------------------------------------
 void App::copySelection() {
@@ -1732,7 +1948,8 @@ void App::pasteClipboard() {
 void App::setBrushColor(const Color& c) {
     brushColor = c;
     brushArmed = true;
-    setStatus("Pinceau armé — clic gauche sur un triangle pour le peindre");
+    setStatus("Pinceau armé — clic gauche : peindre les triangles sélectionnés, "
+              "ou le triangle survolé si rien n'est sélectionné");
 }
 
 void App::paintFace(int fi) {
@@ -1742,6 +1959,63 @@ void App::paintFace(int fi) {
     f.hasColor = true;
     setStatus("Triangle peint");
     logMsg("Triangle peint");
+}
+
+void App::paintFaces(const std::vector<int>& faces) {
+    Mesh2D& m = scene.activePlane();
+    int painted = 0;
+    for (int fi : faces) {
+        if (fi < 0 || (size_t)fi >= m.faces.size()) continue;
+        Face& f = m.faces[fi];
+        f.color = brushColor;
+        f.color.a = brushOpacity;
+        f.hasColor = true;
+        ++painted;
+    }
+    const std::string msg =
+        std::to_string(painted) + (painted > 1 ? " triangles peints" : " triangle peint");
+    setStatus(msg);
+    logMsg(msg);
+}
+
+// Ordre z des faces (devant / derrière) : les faces sélectionnées avancent
+// (]) ou reculent ([) d'un cran dans l'ordre de dessin du plan. Le vecteur
+// des faces EST l'ordre z : dessinées dans l'ordre (les dernières recouvrent)
+// et choisies de la dernière à la première (le dessus d'abord).
+void App::faceForward() {
+    if (selMode != SelMode::Face || selFaces.empty()) {
+        setStatus("Ordre z : sélectionnez d'abord des triangles (cible « triangle »)");
+        return;
+    }
+    pushUndo();
+    std::vector<int> before = selFaces;
+    std::sort(before.begin(), before.end());
+    selFaces = scene.activePlane().shiftFaces(selFaces, +1);
+    if (selFaces == before) {  // déjà au premier plan : pas d'étape d'annulation vide
+        if (!undoStack.empty()) undoStack.pop_back();
+        setStatus("Faces déjà au premier plan (])");
+        return;
+    }
+    setStatus("Faces mises à l'avant (]) — ordre z du plan");
+    logMsg("Faces mises à l'avant (ordre z)");
+}
+
+void App::faceBackward() {
+    if (selMode != SelMode::Face || selFaces.empty()) {
+        setStatus("Ordre z : sélectionnez d'abord des triangles (cible « triangle »)");
+        return;
+    }
+    pushUndo();
+    std::vector<int> before = selFaces;
+    std::sort(before.begin(), before.end());
+    selFaces = scene.activePlane().shiftFaces(selFaces, -1);
+    if (selFaces == before) {  // déjà au dernier plan : pas d'étape d'annulation vide
+        if (!undoStack.empty()) undoStack.pop_back();
+        setStatus("Faces déjà au dernier plan ([)");
+        return;
+    }
+    setStatus("Faces mises à l'arrière ([) — ordre z du plan");
+    logMsg("Faces mises à l'arrière (ordre z)");
 }
 
 // ---------------------------------------------------------------------------
@@ -2072,6 +2346,8 @@ void App::resetScene() {
     sceneName.clear();
     triP1 = triP2 = -1;
     dirty = false;
+    sceneTool = SceneTool::None;      // 8.5 : le mode scène se désarme aussi
+    bgColor = kBgDefault;             // fond par défaut (ardoise)
     camera.reset();
     cameraFramed = false;
     rotDeg = 0.0f;
@@ -2084,6 +2360,22 @@ void App::onEscape() {
     if (kiosk) {
         kiosk = false;
         setStatus("Kiosque : aucun changement");
+        return;
+    }
+    // Mode scène (8.5) : Échap annule la saisie en cours puis désarme l'outil.
+    if (sceneTool != SceneTool::None || isSceneDragging()) {
+        if (isSceneDragging()) {
+            for (size_t i = 0; i < scene.planes.size() && i < drag_.allPlaneStarts.size(); ++i) {
+                const std::vector<Vec2>& start = drag_.allPlaneStarts[i];
+                const size_t n = std::min(scene.planes[i].vertices.size(), start.size());
+                for (size_t j = 0; j < n; ++j) scene.planes[i].vertices[j] = start[j];
+            }
+            if (!undoStack.empty()) undoStack.pop_back();
+            rotDeg = drag_.sceneStartDeg;  // angle affiché : retour à l'état de départ
+            drag_.kind = DragKind::None;
+        }
+        sceneTool = SceneTool::None;
+        setStatus("Mode scène désarmé");
         return;
     }
     if (drag_.kind == DragKind::Move) {
@@ -2367,6 +2659,8 @@ void App::savePrefsFile() {
     p.importMode = dlgImportReplace ? 0 : 1;
     p.allColors = allColors;
     p.snapOn = snapOn;
+    p.bgColor = bgColor;
+    p.sceneTool = (int)sceneTool;
     p.versions = versionFiles;
     p.consoleVisible = consoleVisible;
     p.consoleX = consolePos.x;
@@ -2384,6 +2678,7 @@ void App::loadPrefsFile() {
     p.crownInnerSides = crownInnerSides;
     p.edgePickTol = edgePickTol;
     p.locations = saveLocations;
+    p.bgColor = bgColor;
     const IoResult r = loadPrefsJson(p, prefsDir() + "prefs.json");
     if (!r.ok) return;
     if (!p.palette.empty()) palette = p.palette;
@@ -2399,6 +2694,11 @@ void App::loadPrefsFile() {
     consoleSize = {p.consoleW, p.consoleH};
     allColors = p.allColors;
     snapOn = p.snapOn;
+    // Mode Scène (8.5) : la couleur de fond et l'outil armé sont mémorisés
+    // (valeur bornée ; un outil inconnu = désarmé).
+    bgColor = p.bgColor;
+    bgColor.a = 1.0f;
+    sceneTool = (SceneTool)std::clamp(p.sceneTool, 0, 3);
     versionFiles = p.versions;
     if (versionFiles.size() > 10) versionFiles.resize(10);
 }
@@ -2623,9 +2923,13 @@ void App::updateHoverHelp(const Vec2& mouseWorld) {
     if (tool != Tool::Select) return;          // forme armée, tracé pas commencé
 
     std::string msg;
-    // Pinceau armé : la peinture d'une face a priorité sur le survol.
+    // Pinceau armé : la peinture a priorité sur le survol — avec des
+    // triangles sélectionnés, tous sont peints ; sinon seul le survolé l'est.
     const int face = brushArmed ? pickFace(mouseWorld) : -1;
-    if (face >= 0) {
+    if (brushArmed && !selFaces.empty()) {
+        msg = "Clic gauche pour peindre les " + std::to_string(selFaces.size()) +
+              " triangles sélectionnés";
+    } else if (face >= 0) {
         msg = "Clic gauche pour peindre ce triangle…";
     } else if (selMode == SelMode::Vertex) {
         if (hoverVertex >= 0) {

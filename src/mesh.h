@@ -32,6 +32,11 @@ struct Color {
 
 inline Color rgba(float r, float g, float b, float a = 1.0f) { return {r, g, b, a}; }
 
+// Couleur de fond du canvas par défaut (ardoise) — partagée par l'état
+// (App::bgColor), la réinitialisation de scène, le menu de couleur de fond et
+// les préférences (8.5).
+inline constexpr Color kBgDefault{0.078f, 0.086f, 0.102f, 1.0f};
+
 // ---------------------------------------------------------------------------
 // Face : polygone défini par une liste d'indices de sommets (ordre anti-horaire)
 // Chaque face peut porter une couleur de remplissage (facultative).
@@ -78,6 +83,14 @@ public:
     // le polygone est invalide ou dégénéré (aire nulle, auto-sécant…).
     int addTriangulatedFace(const std::vector<int>& verts);
     bool removeFace(int index);
+    // Ordre z des faces (devant / derrière) : déplace les faces d'indices
+    // `sel` d'un cran dans l'ordre de dessin — `dir` > 0 : vers l'avant
+    // (dessinées en dernier, elles recouvrent les autres), `dir` < 0 : vers
+    // l'arrière. Les faces déplacées gardent leur ordre relatif et poussent
+    // devant / derrière elles les faces non sélectionnées. Retourne les
+    // NOUVEAUX indices des faces déplacées (ordre croissant), qui suivent les
+    // faces après réordonnancement.
+    std::vector<int> shiftFaces(const std::vector<int>& sel, int dir);
     // Découpe le plan avec le polygone fermé `cut` (boucle simple, sens
     // quelconque, concave autorisée) : les faces partiellement recouvertes sont
     // recoupées (la partie restante conserve la couleur), celles entièrement

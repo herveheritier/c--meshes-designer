@@ -321,6 +321,21 @@ distinct du presse-papiers du système :
 Le presse-papiers est **perdu** à la fermeture de l'application. Les boutons sont
 grisés sans sélection (copier/couper) ou sans contenu (coller).
 
+### 5.9 Ordre z des faces (devant / derrière)
+
+Une face (ou une sélection de faces, cible « triangle ») se déplace d'un cran
+**vers l'avant** ou **vers l'arrière** dans l'ordre de dessin du plan, avec les
+boutons **avant / arrière** de la barre d'outils (paquet « Ordre z ») ou les
+raccourcis **] / [** :
+
+- **Vers l'avant (])** : la face est dessinée au-dessus de celles qui la
+  recouvraient — et se sélectionne en premier au clic ;
+- **Vers l'arrière ([)** : la face passe sous celles qui la recouvraient.
+
+Une sélection de plusieurs faces garde son **ordre relatif** et pousse devant /
+derrière elle les faces non sélectionnées. Aux bornes (déjà au premier ou au
+dernier plan), rien ne change. Chaque déplacement est une **étape annulable**.
+
 ---
 
 ## 6. Couleurs et peinture
@@ -340,8 +355,11 @@ La palette est **conservée** d'une session à l'autre.
 ### 6.2 Pinceau
 
 Un **clic sur une pastille** arme le pinceau avec cette couleur. Un **clic gauche
-sur un triangle** (du plan actif) le peint avec la couleur courante. Le pinceau
-désarmé, un clic sur un triangle le sélectionne comme en mode normal.
+sur un triangle** (du plan actif) le peint avec la couleur courante. Avec des
+triangles **sélectionnés** (cible « triangle »), un seul clic du pinceau les
+**peint tous** d'un coup ; sans sélection, seul le triangle cliqué est peint
+(comportement historique). Le pinceau désarmé, un clic sur un triangle le
+sélectionne comme en mode normal.
 
 ### 6.3 Opacité
 
@@ -393,6 +411,14 @@ vertical virtuel (effet « kiosque » / cover-flow) :
   du clavier — fait varier l'inclinaison des cartes et met **un plan en avant**
   (pleine opacité, un guide pointillé vert marque l'axe du pointeur) ; les
   autres cartes sont atténuées ;
+- la forme de chaque plan est **agrandie au maximum sans jamais déborder** de
+  sa carte, quelle que soit sa taille dans le monde : une forme qui remplit
+  ~80 % de la surface de la carte pour les proportions proches de celles de la
+  carte (formes « rondes » un peu moins, la carte étant en paysage) — la même
+  forme rend la même taille, qu'elle soit grande ou petite dans le monde ;
+  elle laisse **une marge au moins égale à la hauteur du texte** en haut et en
+  bas de la carte (le nom du plan et le compteur de points/triangles restent
+  lisibles, la forme ne passe jamais derrière) ;
 - un **clic gauche** sélectionne le plan mis en avant et **quitte immédiatement** le mode ;
 - **Échap** ou **clic droit** sortent du mode sans changer de plan ;
 - aucune édition n'est possible dans ce mode ; la barre d'outils est masquée (sauf le bouton du mode).
@@ -431,6 +457,33 @@ zoomer et se déplacer sans rien modifier.
 ### 8.4 Déplacement de tous les plans ensemble
 
 - **AltGr + clic droit + glisser** : déplace **tous les plans** d'un même décalage (la vue ne bouge pas, c'est le contenu entier qui se déplace).
+
+### 8.5 Mode « Scène » : manipulation de tous les plans à la souris
+
+Un groupe de boutons dédié à la scène complète (barre d'outils) :
+
+- **Saisir** : arme la saisie de la scène — **clic gauche + glisser** au canvas
+  déplace **tous les plans** d'un même décalage (l'aimantation s'applique si
+  elle est active).
+- **Rotation** : arme la rotation — **clic gauche + glisser horizontal** pivote
+  tous les plans autour du **point de saisie** (le curseur).
+- **Échelle** : arme la mise à l'échelle — **clic gauche + glisser vertical**
+  agrandit (vers le bas) ou réduit (vers le haut), autour du point de saisie.
+- **Fond** : choisit la **couleur du canvas** (roue chromatique, pastilles
+  rapides, bouton « Par défaut ») ; la **molette sur le bouton** éclaircit
+  (haut) ou fonce (bas) le fond en direct.
+- **Réinitialiser** : vide entièrement la scène (confirmation, historique
+  annulé, fond remis à l'ardoise).
+
+Pendant la saisie, un **cercle pointillé** marque le pivot et un **badge**
+affiche la valeur en direct (rotation en degrés, échelle ×). Chaque saisie
+forme **une seule étape annulable** (Ctrl+Z) ; un clic sans glisser ne crée
+rien. **Clic droit ou Échap** désarme le mode ; la molette (zoom) et le clic du
+milieu (pan) restent disponibles. Armer un outil de scène désarme les modes
+transitoires (pinceau, mesure, fusion, tracés).
+
+La **couleur du fond** et l'**outil de scène armé** sont mémorisés dans les
+préférences (prefs.json) et restaurés au lancement suivant.
 
 ---
 

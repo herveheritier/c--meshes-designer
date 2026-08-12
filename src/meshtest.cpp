@@ -629,7 +629,7 @@ static void testSpecFormats() {
         CHECK(!bad.ok);
     }
 
-    // Préférences : palette + emplacements + opacité
+    // Préférences : palette + emplacements + opacité + fond & mode Scène (8.5)
     {
         PrefsData p;
         p.palette = {rgba(1, 0, 0), rgba(0, 1, 0)};
@@ -637,6 +637,8 @@ static void testSpecFormats() {
         p.circleSides = 12;
         p.edgePickTol = 14.0f;
         p.locations = {"sceneA", "sceneB"};
+        p.bgColor = {0.2f, 0.4f, 0.6f, 1.0f};
+        p.sceneTool = 2;  // rotation
         CHECK(savePrefsJson(p, "/tmp/meshtest_prefs.json").ok);
         PrefsData back;
         CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs.json").ok);
@@ -646,6 +648,8 @@ static void testSpecFormats() {
         CHECK(back.circleSides == 12);
         CHECK(back.edgePickTol == 14.0f);
         CHECK(back.locations.size() == 2 && back.locations[1] == "sceneB");
+        CHECK(back.bgColor.r == 0.2f && back.bgColor.g == 0.4f && back.bgColor.b == 0.6f);
+        CHECK(back.sceneTool == 2);
     }
 
     // Autosave : scène multi-plans + undo/redo (scènes complètes)
@@ -675,7 +679,7 @@ static void testSpecFormats() {
         CHECK((int)br.size() == 1 && (int)br[0].planes[0].vertices.size() == 1);
     }
 
-    // Préférences : mode « toutes couleurs » conservé
+    // Préférences : mode « toutes couleurs » conservé.
     {
         PrefsData p;
         p.allColors = true;
@@ -683,6 +687,21 @@ static void testSpecFormats() {
         PrefsData back;
         CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs2.json").ok);
         CHECK(back.allColors);
+    }
+
+    // Préférences : compatibilité ascendante — un fichier ANCIEN (sans les
+    // champs 8.5 bgColor / sceneTool) charge le fond par défaut et un mode
+    // scène désarmé (le chemin « clé absente » de loadPrefsJson est exercé).
+    {
+        CHECK(writeTestFile("/tmp/meshtest_prefs_legacy.json",
+                            "{\"allColors\": true, \"snapOn\": false}\n").ok);
+        PrefsData back;
+        CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs_legacy.json").ok);
+        CHECK(back.allColors);
+        CHECK(!back.snapOn);
+        CHECK(back.bgColor.r == kBgDefault.r && back.bgColor.g == kBgDefault.g &&
+              back.bgColor.b == kBgDefault.b);
+        CHECK(back.sceneTool == 0);
     }
 }
 
@@ -737,7 +756,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 66);  // toutes les icônes du dossier assets/
+    CHECK(n == 70);  // toutes les icônes du dossier assets/ (2 ajoutées : ordre z)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -929,11 +948,137 @@ static void testPngExport() {
           data[data.size() - 6] == 'N' && data[data.size() - 5] == 'D');
 }
 
+// Indice de la face dont la boucle est {v0,v1,v2} dans un ordre cyclique.
+static int faceIndexWith(const Mesh2D& m, int v0, int v1, int v2) {
+    for (int i = 0; i < (int)m.faces.size(); ++i) {
+        const std::vector<int>& v = m.faces[i].verts;
+        if (v.size() != 3) continue;
+        const bool match =
+            (v[0] == v0 && v[1] == v1 && v[2] == v2) ||
+            (v[0] == v1 && v[1] == v2 && v[2] == v0) ||
+            (v[0] == v2 && v[1] == v0 && v[2] == v1);
+        if (match) return i;
+    }
+    return -1;
+}
+
+// Ordre z des faces (devant / derrière, FONCTIONNALITES.md 5.9) : shiftFaces
+// sélectionnées d'un cran et retourne leurs nouveaux indices.
+static void testFaceOrder() {
+    std::printf("[ordre z des faces]\n");
+    // 4 triangles dans un carré : f0 {a,b,c}, f1 {b,d,c}, f2 {a,c,d}, f3 {a,b,d}.
+    auto build = [](Mesh2D& m) {
+        const int a = m.addVertex({0, 0});
+        const int b = m.addVertex({1, 0});
+        const int c = m.addVertex({0, 1});
+        const int d = m.addVertex({1, 1});
+        m.addFace({a, b, c});
+        m.addFace({b, d, c});
+        m.addFace({a, c, d});
+        m.addFace({a, b, d});
+    };
+
+    // Une seule face vers l'avant : {2} → {3}, la face a changé de place.
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> sel = {2};
+        sel = m.shiftFaces(sel, +1);
+        CHECK(sel == std::vector<int>({3}));
+        CHECK(faceIndexWith(m, 0, 2, 3) == 3);  // f2 désormais au premier plan
+        CHECK(faceIndexWith(m, 0, 1, 3) == 2);  // f3 recule d'un cran
+    }
+    // Une seule face vers l'arrière : {1} → {0}.
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> sel = {1};
+        sel = m.shiftFaces(sel, -1);
+        CHECK(sel == std::vector<int>({0}));
+        CHECK(faceIndexWith(m, 1, 3, 2) == 0);  // f1 désormais au dernier plan
+        CHECK(faceIndexWith(m, 0, 1, 2) == 1);  // f0 avance d'un cran
+    }
+    // Bloc contigu {1,2} vers l'avant : les deux faces montent, ordre conservé.
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> sel = {1, 2};
+        sel = m.shiftFaces(sel, +1);
+        CHECK(sel == std::vector<int>({2, 3}));
+        CHECK(faceIndexWith(m, 1, 3, 2) == 2);
+        CHECK(faceIndexWith(m, 0, 2, 3) == 3);
+        CHECK(faceIndexWith(m, 0, 1, 2) == 0);
+        CHECK(faceIndexWith(m, 0, 1, 3) == 1);
+    }
+    // Bloc contigu {1,2} vers l'arrière : les deux faces descendent — le bloc
+    // occupe les positions {0,1} et pousse f0 à la position 2.
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> sel = {1, 2};
+        sel = m.shiftFaces(sel, -1);
+        CHECK(sel == std::vector<int>({0, 1}));
+        CHECK(faceIndexWith(m, 1, 3, 2) == 0);
+        CHECK(faceIndexWith(m, 0, 2, 3) == 1);
+        CHECK(faceIndexWith(m, 0, 1, 2) == 2);
+        CHECK(faceIndexWith(m, 0, 1, 3) == 3);
+    }
+    // Faces disjointes {0,2} vers l'avant : ordre relatif conservé (0 puis 2).
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> sel = {0, 2};
+        sel = m.shiftFaces(sel, +1);
+        CHECK(sel == std::vector<int>({1, 3}));
+        CHECK(faceIndexWith(m, 0, 1, 2) == 1);
+        CHECK(faceIndexWith(m, 0, 2, 3) == 3);
+    }
+    // Aux bornes : rien ne bouge, les indices retournés sont inchangés.
+    {
+        Mesh2D n;
+        const int x0 = n.addVertex({0, 0});
+        const int x1 = n.addVertex({1, 0});
+        const int x2 = n.addVertex({0, 1});
+        n.addFace({x0, x1, x2});
+        n.addFace({x0, x2, x1});
+        n.addFace({x0, x1, x2});  // doublon géométrique : l'ordre seul compte ici
+        std::vector<int> top = {2};
+        CHECK(n.shiftFaces(top, +1) == std::vector<int>({2}));
+        std::vector<int> bottom = {0};
+        CHECK(n.shiftFaces(bottom, -1) == std::vector<int>({0}));
+    }
+    // Plan à une seule face : rien ne bouge et la sélection reste intacte
+    // (régression : un retour précoce vidait la sélection).
+    {
+        Mesh2D n;
+        const int x0 = n.addVertex({0, 0});
+        const int x1 = n.addVertex({1, 0});
+        const int x2 = n.addVertex({0, 1});
+        n.addFace({x0, x1, x2});
+        std::vector<int> single = {0};
+        CHECK(n.shiftFaces(single, +1) == std::vector<int>({0}));
+        CHECK(n.shiftFaces(single, -1) == std::vector<int>({0}));
+    }
+    // Indices invalides ignorés ; sélection vide → vide ; tout sélectionné :
+    // aucun déplacement possible.
+    {
+        Mesh2D m;
+        build(m);
+        std::vector<int> bad = {5, -1};
+        CHECK(m.shiftFaces(bad, +1).empty());
+        std::vector<int> empty;
+        CHECK(m.shiftFaces(empty, +1).empty());
+        std::vector<int> all = {0, 1, 2, 3};
+        CHECK(m.shiftFaces(all, +1) == all);
+    }
+}
+
 int main() {
     testTriangulation();
     testCrownBand();
     testCutPolygons();
     testMeshOps();
+    testFaceOrder();
     testRoundTrip();
     testSpecFormats();
     testSVGIcons();

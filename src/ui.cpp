@@ -36,6 +36,8 @@ const ImU32 kDimCol = IM_COL32(150, 160, 180, 160);
 // Rembourrage des boutons à icônes : cadre plus haut et plus large pour une
 // meilleure lisibilité (la hauteur du bouton = police + 2 × FramePadding.y).
 const ImVec2 kBtnFramePad(7.0f, 5.0f);
+// Pi local (app.cpp en a sa propre copie dans un autre TU).
+constexpr float kPiF = 3.14159265358979323846f;
 // Largeur automatique d'un bouton à libellé : texte + icône (18 px) + cette
 // marge. Partagée entre toolBtnIcon (largeur auto) et dialogBtnWidth (largeur
 // commune des boutons de dialogues) pour qu'elles ne puissent pas dériver.
@@ -250,9 +252,11 @@ void drawText(ImDrawList* dl, float x, float y, const char* text, ImU32 col = kT
 // Déclarations anticipées (définies plus bas, utilisées par le viewport et la
 // barre d'outils).
 void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl, const ImVec2& br,
-                   float squash, float alpha, bool front);
+                   float squash, float alpha, bool front, float topMargin,
+                   float bottomMargin);
 void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& size);
 void shapesMenu(App& app);
+void bgColorPopup(App& app);
 
 // ---------------------------------------------------------------------------
 // Raccourcis (spec ch. 15)
@@ -361,6 +365,11 @@ void handleShortcuts(App& app) {
         if (io.KeyShift) app.mirrorSelectionY();
         else app.mirrorSelectionX();
     }
+    // Ordre z des faces : ] vers l'avant (dessus), [ vers l'arrière (dessous).
+    if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+        app.faceForward();
+    if (!io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+        app.faceBackward();
     // Outil mesure : distance entre deux points (Ctrl+M).
     if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_M))
         app.toggleMeasure();
@@ -754,6 +763,23 @@ void toolbar(App& app) {
         shapesMenu(app);
     }
 
+    // --- Paquet Ordre z des faces : avant (]) / arrière ([) ---
+    {
+        const bool hasFaces = app.selMode == SelMode::Face && !app.selFaces.empty();
+        placePack(packW({bw, bw}));
+        if (toolBtnIcon("face-front",
+                        "Faces sélectionnées vers l'avant (]) : dessinées au-dessus "
+                        "de celles qui les recouvraient",
+                        false, kGreen, !hasFaces))
+            app.faceForward();
+        ImGui::SameLine();
+        if (toolBtnIcon("face-back",
+                        "Faces sélectionnées vers l'arrière ([) : passées sous celles "
+                        "qui les recouvraient",
+                        false, kGreen, !hasFaces))
+            app.faceBackward();
+    }
+
     // --- Paquet Fusion des points (5.5 / 5.6) ---
     {
         const bool mergeArmed = app.mergeMode != App::MergeMode::Off;
@@ -916,12 +942,73 @@ void toolbar(App& app) {
             app.toggleKiosk();
     }
 
-    // --- Paquet Scène : réinitialiser ---
+    // --- Paquet Scène (8.5) : saisir, pivoter, redimensionner, fond, reset ---
     {
-        placePack(packW({bw}));
+        // Portée d'ID dédiée : « rotate » et « scale » sont déjà utilisés par
+        // le paquet Outils de la même fenêtre — ImGui identifie les items par
+        // la pile d'ID (ici l'icône), sans cette portée les états des boutons
+        // se confondraient (survol, clic, actif). Le popup « ##bgmenu » reste
+        // cohérent : OpenPopup / IsPopupOpen / BeginPopup sont dans la même
+        // portée.
+        ImGui::PushID("scene-pack");
+        placePack(packW({bw, bw, bw, bw, bw}));
+        const bool grabActive = app.sceneTool == SceneTool::Grab;
+        if (toolBtnIcon(
+                "grab",
+                grabActive
+                    ? "Saisie de la scène armée — clic gauche + glisser : déplacer "
+                      "tous les plans ensemble · clic droit ou Échap : désarmer"
+                    : "Saisir toute la scène : clic gauche + glisser au canvas déplace "
+                      "tous les plans d'un même décalage",
+                grabActive, kGreen, false))
+            app.toggleSceneTool(SceneTool::Grab);
+        ImGui::SameLine();
+        const bool rotActive = app.sceneTool == SceneTool::Rotate;
+        if (toolBtnIcon(
+                "rotate",
+                rotActive
+                    ? "Rotation de la scène armée — clic gauche + glisser horizontal : "
+                      "pivoter tous les plans autour du point de saisie · clic droit ou "
+                      "Échap : désarmer"
+                    : "Pivoter toute la scène : clic gauche + glisser horizontal au "
+                      "canvas (autour du point de saisie)",
+                rotActive, kGreen, false))
+            app.toggleSceneTool(SceneTool::Rotate);
+        ImGui::SameLine();
+        const bool scaActive = app.sceneTool == SceneTool::Scale;
+        if (toolBtnIcon(
+                "scale",
+                scaActive
+                    ? "Mise à l'échelle de la scène armée — clic gauche + glisser "
+                      "vertical : agrandir (vers le bas) / réduire (vers le haut) "
+                      "· clic droit ou Échap : désarmer"
+                    : "Redimensionner toute la scène : clic gauche + glisser vertical "
+                      "au canvas (vers le bas = agrandir)",
+                scaActive, kGreen, false))
+            app.toggleSceneTool(SceneTool::Scale);
+        ImGui::SameLine();
+        if (toolBtnIcon("background",
+                        "Couleur du fond du canvas — clic : choisir une teinte "
+                        "(teinte en direct, molette : nuances rapides)",
+                        ImGui::IsPopupOpen("##bgmenu"), kBlue, false))
+            ImGui::OpenPopup("##bgmenu");
+        // Molette sur le bouton : éclaircit (haut) / fonce (bas) le fond.
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+            const float k = std::pow(1.1f, io.MouseWheel);  // haut → plus clair
+            app.bgColor.r = std::clamp(app.bgColor.r * k, 0.0f, 1.0f);
+            app.bgColor.g = std::clamp(app.bgColor.g * k, 0.0f, 1.0f);
+            app.bgColor.b = std::clamp(app.bgColor.b * k, 0.0f, 1.0f);
+            app.bgColor.a = 1.0f;
+            app.setStatus("Couleur du fond : " + std::to_string((int)(app.bgColor.r * 255)) +
+                          "," + std::to_string((int)(app.bgColor.g * 255)) + "," +
+                          std::to_string((int)(app.bgColor.b * 255)));
+        }
+        ImGui::SameLine();
         if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
                         false, kRed, false))
             app.dlgResetOpen = true;
+        bgColorPopup(app);
+        ImGui::PopID();
     }
 
     // --- Paquet Interface : console, aide, réglages ---
@@ -1130,6 +1217,78 @@ void viewport(App& app) {
     app.viewportHovered = ImGui::IsWindowHovered();
     app.update(io.DeltaTime);
 
+    // Mode « Scène » (8.5) : repères de l'outil armé et saisie en cours.
+    if (app.sceneTool != SceneTool::None && app.preview == PreviewMode::Off) {
+        if (app.isSceneDragging()) {
+            // Cercle pointillé autour du pivot (le point saisi), la souris en
+            // fixe le rayon — la rotation / l'échelle tournent autour de lui.
+            const Vec2 ps = app.camera.worldToScreen(app.sceneDragPivot(),
+                                                     app.viewportVec2());
+            const ImVec2 p(pos.x + ps.x, pos.y + ps.y);
+            const ImVec2 mp = io.MousePos;
+            const float dx = mp.x - p.x;
+            const float dy = mp.y - p.y;
+            const float r = std::max(22.0f, std::sqrt(dx * dx + dy * dy));
+            const ImU32 col = IM_COL32(120, 230, 255, 200);
+            constexpr int kSegs = 48;
+            for (int i = 0; i < kSegs; i += 2) {
+                const float a0 = (float)i * 2.0f * kPiF / (float)kSegs;
+                const float a1 = (float)(i + 1) * 2.0f * kPiF / (float)kSegs;
+                dl->AddLine(ImVec2(p.x + std::cos(a0) * r, p.y + std::sin(a0) * r),
+                            ImVec2(p.x + std::cos(a1) * r, p.y + std::sin(a1) * r), col,
+                            1.4f);
+            }
+            dl->AddCircleFilled(p, 3.5f, col);
+            dl->AddCircle(p, 6.5f, col);
+            // Valeur en direct près du curseur (badge).
+            char buf[64];
+            // sceneDragStartScreen est relatif au viewport : on soustrait pos.
+            if (app.sceneTool == SceneTool::Rotate) {
+                const float deg = (mp.x - pos.x - app.sceneDragStartScreen().x) *
+                                  App::kSceneDegPerPx;
+                std::snprintf(buf, sizeof(buf), "rotation %+.0f°", deg);
+            } else if (app.sceneTool == SceneTool::Scale) {
+                const float f = std::exp((mp.y - pos.y - app.sceneDragStartScreen().y) *
+                                         App::kSceneScalePerPx);
+                std::snprintf(buf, sizeof(buf), "échelle ×%.2f", f);
+            } else {
+                std::snprintf(buf, sizeof(buf), "déplacement");
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(buf);
+            const float padX = 9.0f, padY = 5.0f;
+            const float bw = ts.x + padX * 2.0f;
+            const float bh = ts.y + padY * 2.0f;
+            const float bx = std::max(pos.x + 4.0f,
+                                      std::min(mp.x + 14.0f, pos.x + size.x - bw - 4.0f));
+            const float by = std::max(pos.y + 4.0f,
+                                      std::min(mp.y - bh - 10.0f, pos.y + size.y - bh - 4.0f));
+            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                              IM_COL32(18, 24, 32, 225), 5.0f);
+            dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                        IM_COL32(90, 160, 255, 150), 5.0f);
+            dl->AddText(ImVec2(bx + padX, by + padY),
+                        IM_COL32(220, 235, 250, 245), buf);
+        } else {
+            // Outil armé mais pas de saisie : badge discret en haut au centre.
+            const char* label =
+                app.sceneTool == SceneTool::Grab   ? "Saisie de la scène — clic gauche + glisser"
+              : app.sceneTool == SceneTool::Rotate ? "Rotation de la scène — clic gauche + glisser horizontal"
+                                                        : "Échelle de la scène — clic gauche + glisser vertical";
+            const ImVec2 ts = ImGui::CalcTextSize(label);
+            const float padX = 10.0f, padY = 5.0f;
+            const float bw = ts.x + padX * 2.0f;
+            const float bh = ts.y + padY * 2.0f;
+            const float bx = pos.x + (size.x - bw) * 0.5f;
+            const float by = pos.y + 10.0f;
+            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                              IM_COL32(14, 20, 28, 200), 5.0f);
+            dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                          IM_COL32(120, 230, 255, 90), 5.0f);
+            dl->AddText(ImVec2(bx + padX, by + padY),
+                        IM_COL32(215, 230, 245, 235), label);
+        }
+    }
+
     // Rectangle de sélection (lasso).
     if (app.isBoxDragging()) {
         const ImVec2 a(pos.x + app.boxStart().x, pos.y + app.boxStart().y);
@@ -1304,6 +1463,47 @@ void shapesMenu(App& app) {
     ImGui::TextDisabled("2 clics : ancre puis valider · étoile, anneau et couronne : 3 clics.");
     ImGui::TextDisabled("Molette (cercle/anneau) : côtés · couronne : extérieurs puis intérieurs pendant le tracé (Maj+molette : l'autre jeu).");
     ImGui::TextDisabled("Raccourcis : C R T Q N H É A O · Retour arrière : annuler le tracé.");
+    ImGui::EndPopup();
+}
+
+// Couleur du fond du canvas (bouton du groupe Scène, 8.5) : roue chromatique,
+// pastilles rapides (sombres / claires) et retour au fond par défaut — le tout
+// pilotable à la souris, effet visible immédiatement derrière le menu.
+void bgColorPopup(App& app) {
+    if (!ImGui::BeginPopup("##bgmenu")) return;
+    ImGui::TextDisabled("Couleur du fond du canvas :");
+    ImGui::SetNextItemWidth(190.0f);
+    if (ImGui::ColorEdit3("##bg", &app.bgColor.r))
+        app.bgColor.a = 1.0f;
+    ImGui::Separator();
+    const Color presets[] = {
+        kBgDefault,  // ardoise (défaut)
+        {0.12f, 0.13f, 0.16f, 1.0f},
+        {0.16f, 0.19f, 0.24f, 1.0f},
+        {0.21f, 0.24f, 0.30f, 1.0f},
+        {0.93f, 0.94f, 0.96f, 1.0f},      // clair
+        {1.0f, 1.0f, 1.0f, 1.0f},         // blanc
+    };
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 4.0f));
+    for (size_t i = 0; i < sizeof(presets) / sizeof(presets[0]); ++i) {
+        ImGui::PushID((int)i);
+        const ImVec4 c(presets[i].r, presets[i].g, presets[i].b, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, c);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              ImVec4(c.x * 1.25f, c.y * 1.25f, c.z * 1.25f, 1.0f));
+        if (ImGui::Button("##sw", ImVec2(26, 26))) app.bgColor = presets[i];
+        ImGui::PopStyleColor(2);
+        if (i < sizeof(presets) / sizeof(presets[0]) - 1) ImGui::SameLine();
+        ImGui::PopID();
+    }
+    ImGui::PopStyleVar();
+    ImGui::Separator();
+    if (toolBtnIcon("reset", "Revenir au fond par défaut (ardoise)", false, kGreen,
+                    false, "Par défaut")) {
+        app.bgColor = kBgDefault;
+        app.setStatus("Couleur du fond : ardoise (défaut)");
+    }
+    ImGui::TextDisabled("La molette sur le bouton fonce / éclaircit.");
     ImGui::EndPopup();
 }
 
@@ -1539,11 +1739,13 @@ void helpWindow(App& app) {
         ImGui::BulletText("? : cette aide · Échap : quitter le mode en cours");
         ImGui::BulletText("Alt+← / Alt+→ : aligner X / Y · Alt+Maj+←/→ : répartir X / Y");
         ImGui::BulletText("Alt+↑ / Alt+↓ : monter / descendre le plan actif (empilement)");
+        ImGui::BulletText("] / [ : face(s) sélectionnée(s) vers l'avant / l'arrière — ordre z dans le plan (boutons de la barre d'outils)");
         ImGui::BulletText("Alt+K : kiosque de sélection des plans (au moins 2 plans — flèches ←/→ pour naviguer)");
         ImGui::Separator();
         ImGui::TextUnformatted("Souris");
         ImGui::BulletText("Clic gauche (vide) : poser un point — 3 clics ferment un triangle");
         ImGui::BulletText("Clic gauche (entité) : sélectionner · Maj+clic : basculer");
+        ImGui::BulletText("Pinceau : clic gauche peint le triangle survolé — ou tous les triangles sélectionnés (cible « triangle »)");
         ImGui::BulletText("Clic gauche + glisser : rectangle de sélection (ne déplace jamais)");
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
@@ -1551,6 +1753,8 @@ void helpWindow(App& app) {
         ImGui::BulletText("PNG (icône image de la barre d'outils ou de la prévisualisation) : exporter la vue actuelle en image");
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
+        ImGui::BulletText("Groupe Scène — Saisir : clic gauche + glisser déplace tous les plans · Pivoter : glisser horizontal tourne autour du point saisi · Échelle : glisser vertical agrandit (bas) / réduit (haut) — clic droit ou Échap désarme");
+        ImGui::BulletText("Groupe Scène — bouton fond : couleur du canvas (molette sur le bouton : foncer / éclaircir) · bouton réinitialiser : vider la scène (confirmation)");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
         ImGui::BulletText("Bouton Aimant de la barre d'outils : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
@@ -1605,7 +1809,8 @@ void previewButton(App& app) {
 // Miniature d'un plan dans sa carte : géométrie recentrée, inclinée (effet
 // cover-flow), remplie de ses couleurs.
 void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl,
-                   const ImVec2& br, float squash, float alpha, bool front) {
+                   const ImVec2& br, float squash, float alpha, bool front,
+                   float topMargin, float bottomMargin) {
     const Mesh2D& p = app.scene.planes[pi];
     if (p.vertices.empty()) return;
     Vec2 mn = p.vertices[0], mx = p.vertices[0];
@@ -1615,20 +1820,35 @@ void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl,
         mx.x = std::max(mx.x, v.x);
         mx.y = std::max(mx.y, v.y);
     }
-    const float span = std::max(mx.x - mn.x, mx.y - mn.y);
-    if (span < 1e-6f) return;
+    const float bw = mx.x - mn.x;
+    const float bh = mx.y - mn.y;
+    if (bw < 1e-6f || bh < 1e-6f) return;
     const Vec2 cw = {(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f};
-    const float pad = 9.0f;
-    const float scale =
-        std::min((br.x - tl.x - pad * 2.0f) / span, (br.y - tl.y - pad * 2.0f) / span);
+    // Marges : 5 px sur les côtés ; en haut et en bas, une marge au moins égale
+    // à la hauteur des bandeaux texte (nom du plan en haut, compteurs en bas)
+    // pour que la forme agrandie ne passe jamais derrière le texte. La forme
+    // couvre ~80-90 % de la zone utile pour les proportions proches de celles
+    // de la carte (~57 % pour les formes « rondes », la carte étant en paysage).
+    const float sidePad = 5.0f;
+    const float innerW = br.x - tl.x - sidePad * 2.0f;
+    const float innerH = br.y - tl.y - topMargin - bottomMargin;
+    if (innerW < 1e-6f || innerH < 1e-6f) return;  // carte trop petite
+    // Ajustement « contenir » par axe (échelle uniforme) : la forme remplit la
+    // zone utile au maximum sans jamais déborder, quelle que soit sa taille
+    // dans le monde. L'ancien code divisait par span dans scale PUIS dans la
+    // projection : la taille rendue était inversement proportionnelle à la
+    // taille monde (une forme 10× plus grande rendait 10× plus petite).
+    const float scale = std::min(innerW / bw, innerH / bh);
+    // Centre horizontal de la carte ; centre vertical de la zone utile (entre
+    // les bandeaux texte), pas de la carte entière.
     const float cx = (tl.x + br.x) * 0.5f;
-    const float cy = (tl.y + br.y) * 0.5f;
+    const float cy = (tl.y + topMargin + br.y - bottomMargin) * 0.5f;
     // Le monde a Y vers le haut, l'écran Y vers le bas : on soustrait pour que
     // le haut de la forme apparaisse en haut de la carte (l'ancien code
     // inversait les plans verticalement dans le kiosque).
     auto toCard = [&](const Vec2& w) {
-        return ImVec2(cx + (w.x - cw.x) / span * scale * squash,
-                      cy - (w.y - cw.y) / span * scale);
+        return ImVec2(cx + (w.x - cw.x) * scale * squash,
+                      cy - (w.y - cw.y) * scale);
     };
 
     // Faces (triangulées, avec leurs couleurs).
@@ -1734,8 +1954,27 @@ void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& siz
                                   : (i == app.scene.active ? IM_COL32(235, 170, 60, 180)
                                                            : IM_COL32(255, 255, 255, 40));
         dl->AddRect(tl, br, borderCol, 7.0f, 0, front ? 1.6f : 1.0f);
+        const Mesh2D& p = app.scene.planes[i];
+
+        // Bandeaux texte de la carte : nom du plan en haut, compteurs en bas.
+        // Les hauteurs de texte sont calculées AVANT la forme pour lui réserver
+        // une marge verticale au moins égale à la hauteur du texte (plus un
+        // léger espace) : la forme agrandie ne passe jamais derrière le texte.
+        const std::string label = planeLabel(app, i);
+        const ImVec2 ns = ImGui::CalcTextSize(label.c_str());
+        char counts[48];
+        std::snprintf(counts, sizeof(counts), "%d pt · %d tri",
+                      (int)p.vertices.size(), p.triangleCount());
+        const ImVec2 csize = ImGui::CalcTextSize(counts);
+        // Marge réservée à la forme = hauteur du bandeau texte (texte + 8 px
+        // d'air) quand le bandeau est affiché ; simple liseré de 5 px sinon
+        // (cartes trop petites : le bandeau n'est pas dessiné).
+        const float topMargin = (cw > 44.0f) ? ns.y + 8.0f : 5.0f;
+        const float bottomMargin = (cw > 56.0f) ? csize.y + 8.0f : 5.0f;
+
         // Vignettes de fond lisibles : toutes de même dimension (voir kioskOverlay).
-        drawPlaneCard(app, dl, i, tl, br, std::fabs(squash), alpha, front);
+        drawPlaneCard(app, dl, i, tl, br, std::fabs(squash), alpha, front,
+                      topMargin, bottomMargin);
 
         // Reflet discret en haut de la carte (dégradé clair → transparent,
         // légèrement rentré pour respecter les coins arrondis).
@@ -1746,12 +1985,8 @@ void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& siz
             IM_COL32(255, 255, 255, (int)(26.0f * alpha)),
             IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 0));
 
-        const Mesh2D& p = app.scene.planes[i];
-
         // Nom du plan directement sur la carte (bandeau discret en haut) :
         // le nom personnalisé s'il existe, sinon « Plan n ».
-        const std::string label = planeLabel(app, i);
-        const ImVec2 ns = ImGui::CalcTextSize(label.c_str());
         const float nameY = tl.y + 5.0f;
         if (cw > 44.0f) {
             dl->AddRectFilled(ImVec2(px - ns.x * 0.5f - 6.0f, nameY - 2.0f),
@@ -1763,14 +1998,17 @@ void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& siz
                         label.c_str());
         }
 
-        // Compteurs points / triangles en bas de carte.
-        char counts[48];
-        std::snprintf(counts, sizeof(counts), "%d pt · %d tri",
-                      (int)p.vertices.size(), p.triangleCount());
-        const ImVec2 csize = ImGui::CalcTextSize(counts);
-        if (cw > 56.0f)
-            dl->AddText(ImVec2(px - csize.x * 0.5f, br.y - csize.y - 5.0f),
+        // Compteurs points / triangles en bas de carte : bandeau sombre derrière
+        // le texte (comme l'étiquette du haut) pour rester lisible quand la
+        // forme agrandie passe derrière.
+        if (cw > 56.0f) {
+            const float cy0 = br.y - csize.y - 5.0f;
+            dl->AddRectFilled(ImVec2(px - csize.x * 0.5f - 6.0f, cy0 - 2.0f),
+                              ImVec2(px + csize.x * 0.5f + 6.0f, cy0 + csize.y + 2.0f),
+                              IM_COL32(0, 0, 0, (int)(95.0f * alpha)), 3.0f);
+            dl->AddText(ImVec2(px - csize.x * 0.5f, cy0),
                         IM_COL32(180, 195, 215, front ? 205 : 115), counts);
+        }
 
         // Marqueur spécial du plan actif (celui en cours d'édition) :
         // pilule ambre « actif » sous la carte.

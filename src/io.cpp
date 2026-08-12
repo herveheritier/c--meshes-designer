@@ -153,6 +153,7 @@ struct JsonParser {
         if (*p == '}') { ++p; return true; }
         for (;;) {
             JVal k;
+            ws();  // après une virgule, une clé peut être précédée d'espaces
             if (!string(k)) return fail("clé attendue");
             ws();
             if (*p != ':') return fail("« : » attendu");
@@ -751,6 +752,12 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     v.obj.emplace_back("importMode", JVal::num(p.importMode));
     v.obj.emplace_back("allColors", JVal::boolean(p.allColors));
     v.obj.emplace_back("snapOn", JVal::boolean(p.snapOn));
+    JVal bg = JVal::array();
+    bg.arr.push_back(JVal::num(p.bgColor.r));
+    bg.arr.push_back(JVal::num(p.bgColor.g));
+    bg.arr.push_back(JVal::num(p.bgColor.b));
+    v.obj.emplace_back("bgColor", bg);
+    v.obj.emplace_back("sceneTool", JVal::num(p.sceneTool));
     JVal ver = JVal::array();
     for (const auto& s : p.versions) ver.arr.push_back(JVal::str(s));
     v.obj.emplace_back("versions", ver);
@@ -788,6 +795,16 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
     if (root.getBool("allColors", ac)) out.allColors = ac;
     bool sn = out.snapOn;
     if (root.getBool("snapOn", sn)) out.snapOn = sn;
+    // Couleur de fond du canvas (8.5) : [r,g,b], canaux bornés 0..1 ; absente
+    // ou invalide → défaut (ardoise, kBgDefault) via `out` pré-ensemencé.
+    const JVal* bg = root.find("bgColor");
+    if (bg && bg->t == JVal::T::Arr && bg->arr.size() >= 3) {
+        const auto clamp01 = [](double x) { return (float)std::clamp(x, 0.0, 1.0); };
+        out.bgColor = {clamp01(bg->arr[0].n), clamp01(bg->arr[1].n),
+                       clamp01(bg->arr[2].n), 1.0f};
+    }
+    // Outil du mode Scène armé (8.5) : entier 0..3, hors bornes → désarmé.
+    if (root.getNum("sceneTool", d)) out.sceneTool = (int)std::clamp(d, 0.0, 3.0);
     const JVal* ver = root.find("versions");
     if (ver && ver->t == JVal::T::Arr) {
         out.versions.clear();

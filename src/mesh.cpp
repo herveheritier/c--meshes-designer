@@ -148,6 +148,46 @@ bool Mesh2D::removeFace(int index) {
     return true;
 }
 
+std::vector<int> Mesh2D::shiftFaces(const std::vector<int>& sel, int dir) {
+    std::vector<int> out;
+    // Pas de retour précoce sur les petits maillages : le résultat doit TOUJOURS
+    // refléter le masque de sélection (un plan à une seule face renvoie les
+    // indices intacts, la sélection ne doit pas se vider).
+    if (dir == 0) return out;
+    // Masque de sélection courant : les indices suivent les faces lors des
+    // échanges (mêmes positions que le vecteur `faces`, donc mêmes swaps).
+    std::vector<bool> mask(faces.size(), false);
+    for (int s : sel)
+        if (s >= 0 && (size_t)s < faces.size()) mask[(size_t)s] = true;
+    // Échange manuel des bits du masque : std::swap ne s'applique pas aux
+    // proxies de std::vector<bool>.
+    auto swapBits = [&](size_t a, size_t b) {
+        const bool t = mask[a];
+        mask[a] = mask[b];
+        mask[b] = t;
+    };
+    if (dir > 0) {
+        // Vers l'avant : chaque face sélectionnée échange avec la face non
+        // sélectionnée qui la suit (parcours du haut vers le bas).
+        for (int i = (int)faces.size() - 2; i >= 0; --i)
+            if (mask[(size_t)i] && !mask[(size_t)i + 1]) {
+                std::swap(faces[(size_t)i], faces[(size_t)i + 1]);
+                swapBits((size_t)i, (size_t)i + 1);
+            }
+    } else {
+        // Vers l'arrière : chaque face sélectionnée échange avec la face non
+        // sélectionnée qui la précède (parcours du bas vers le haut).
+        for (int i = 1; i < (int)faces.size(); ++i)
+            if (mask[(size_t)i] && !mask[(size_t)i - 1]) {
+                std::swap(faces[(size_t)i], faces[(size_t)i - 1]);
+                swapBits((size_t)i, (size_t)i - 1);
+            }
+    }
+    for (int i = 0; i < (int)mask.size(); ++i)
+        if (mask[(size_t)i]) out.push_back(i);
+    return out;
+}
+
 bool Mesh2D::cutPolygon(const std::vector<Vec2>& cut) {
     if (cut.size() < 3) return false;
     if (faces.empty()) return false;

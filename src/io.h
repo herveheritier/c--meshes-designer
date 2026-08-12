@@ -76,6 +76,9 @@ struct PrefsData {
     int importMode = 0;                   // 0 = remplacer, 1 = fusionner
     bool allColors = false;               // mode « toutes couleurs » conservé (7.6)
     bool snapOn = true;                   // aimantation sur la grille (indépendante de l'affichage)
+    Color bgColor = kBgDefault;           // couleur de fond du canvas (8.5)
+    int sceneTool = 0;                    // outil du mode Scène armé : 0 = aucun, 1 = saisir,
+                                          // 2 = rotation, 3 = échelle (8.5)
     std::vector<std::string> versions;    // noms des versions horodatées de l'autosave (10 max)
     bool consoleVisible = false;
     float consoleX = 0.0f, consoleY = 0.0f;

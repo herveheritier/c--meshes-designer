@@ -23,16 +23,35 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
+- [ ] ajouter fonctionnalité au bouton toutes les couleurs : mode filaire
 - [ ] sélection au lasso : entourer d'un tracé libre (ou d'un rectangle de
   sélection) plusieurs sommets, segments ou faces d'un coup, en plus de la
   sélection clic par clic.
 - [ ] opacité par plan : régler la transparence de chaque plan indépendamment
   (les faces ont déjà leur propre opacité), pour superposer des plans en les
   laissant visibles les uns à travers les autres.
-- [ ] ordre z des faces : passer une face en avant ou en arrière par rapport
-  aux autres faces du même plan (devant / derrière).
+- [ ] ajouter un réticule supplémentaire composé de la projection symétrique des axes 
 
 ## Effectuées
+
+- 2026-08-12 · Kiosque : la forme de chaque plan est agrandie au maximum dans
+  sa carte sans jamais déborder (~80 % de la surface pour les proportions
+  proches de la carte, un peu moins pour les formes « rondes ») — la taille
+  rendue ne dépend plus de la taille de la forme dans le monde (l'ancien
+  calcul divisait deux fois par l'envergure : une forme 10× plus grande
+  rendait 10× plus petite).
+- 2026-08-12 · Ordre z des faces : une face (ou une sélection de faces, cible
+  « triangle ») se déplace d'un cran vers l'avant ou l'arrière dans l'ordre de
+  dessin du plan — boutons avant / arrière du paquet « Ordre z » de la barre
+  d'outils, raccourcis ] / [. Une face avancée est dessinée au-dessus de celles
+  qui la recouvraient (et se sélectionne en premier) ; une sélection de
+  plusieurs faces garde son ordre relatif et pousse devant / derrière elle les
+  faces non sélectionnées ; aux bornes, rien ne change. Chaque déplacement est
+  une étape annulable.
+- 2026-08-12 · Peinture : avec des triangles sélectionnés (cible
+  « triangle »), un seul clic du pinceau peint tous les triangles sélectionnés
+  d'un coup ; sans sélection, seul le triangle cliqué est peint (comportement
+  historique conservé).
 
 - 2026-08-12 · `0244129` — Découpe d'un plan par un polygone (outil découpe,
   raccourci D) : on trace à main levée un polygone qui chevauche des faces déjà

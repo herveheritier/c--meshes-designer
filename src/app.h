@@ -23,8 +23,11 @@ inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut; }
 enum class ReticleState { Off, Simple, Symmetric };
 enum class PreviewMode { Off, Simple, Planes };
 
+// Mode « Scène » (8.5) : manipulation de TOUS les plans à la souris.
+enum class SceneTool { None, Grab, Rotate, Scale };
+
 // --- Drag en cours ---
-enum class DragKind { None, Move, MoveAll, Box, Shape };
+enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale };
 
 struct Drag {
     DragKind kind = DragKind::None;
@@ -36,6 +39,12 @@ struct Drag {
     Vec2 grabWorld{0, 0};               // point de saisie en monde (Move / MoveAll)
     Vec2 startScreen{0, 0};             // pixels, relatif au viewport (Box)
     Vec2 curScreen{0, 0};
+    // Mode scène (8.5) : ancre monde sous le curseur au début de la saisie
+    // (pivot des rotations / mises à l'échelle), écran de départ et angle de
+    // rotation cumulé affiché au HUD au début du glisser.
+    Vec2 sceneAnchor{0, 0};
+    Vec2 sceneStartScreen{0, 0};
+    float sceneStartDeg = 0.0f;
     // Tracé de forme : 0 prêt · 1 ancre posée · 2 verrouillé (étoile/anneau)
     int shapeStage = 0;
     Vec2 shapeAnchor{0, 0};             // ancre (centre ou coin) en monde
@@ -55,6 +64,18 @@ public:
     Camera2D camera;
     Renderer renderer;
     SDL_Window* window = nullptr;
+
+    // --- Mode « Scène » (8.5) : manipulation de tous les plans ---
+    // Outil armé (boutons du groupe Scène) : le canvas sert alors à saisir /
+    // pivoter / redimensionner TOUS les plans ensemble ; clic droit ou Échap
+    // désarme. Wheel = zoom et clic du milieu = pan restent disponibles.
+    SceneTool sceneTool = SceneTool::None;
+    // Couleur de fond du canvas (bouton « fond » du groupe Scène).
+    Color bgColor = kBgDefault;
+    // Sensibilités de la saisie souris (mode Scène) : 1 px horizontal = 0,4°
+    // de rotation ; échelle ×exp(0,005/px vertical) (~×1,65 pour 100 px).
+    static constexpr float kSceneDegPerPx = 0.4f;
+    static constexpr float kSceneScalePerPx = 0.005f;
 
     // --- Sélection & outils ---
     SelMode selMode = SelMode::Vertex;
@@ -291,6 +312,26 @@ public:
     // Rotation de TOUS les plans autour du pivot (8.3, AltGr + molette).
     void rotateAllPlanesAround(const Vec2& pivot, float deg);
 
+    // --- Mode Scène (8.5) ---
+    // Arme / désarme l'outil scène (un seul outil à la fois ; re-clic sur
+    // l'outil armé = désarmer).
+    void toggleSceneTool(SceneTool t);
+    // Mise à l'échelle de TOUS les plans autour du pivot (facteur > 0).
+    void scaleAllPlanesAround(const Vec2& pivot, float factor);
+    // Saisie souris du mode scène : clic gauche = début, glisser = appliquer,
+    // relâchement = fin (une étape annulable, retirée si aucun déplacement).
+    void beginSceneDrag(const Vec2& world, const Vec2& screen);
+    void applySceneDrag(const Vec2& world, const Vec2& screen);
+    void endSceneDrag();
+    bool isSceneDragging() const {
+        return drag_.kind == DragKind::SceneGrab || drag_.kind == DragKind::SceneRotate ||
+               drag_.kind == DragKind::SceneScale;
+    }
+    // Pivot (monde) de la saisie en cours — repère visuel au canvas.
+    Vec2 sceneDragPivot() const { return drag_.sceneAnchor; }
+    // Écran de départ de la saisie — valeur en direct affichée au canvas.
+    Vec2 sceneDragStartScreen() const { return drag_.sceneStartScreen; }
+
     // --- Presse-papiers ---
     void copySelection();
     void cutSelection();
@@ -299,7 +340,18 @@ public:
     // --- Peinture ---
     int pickFace(const Vec2& world) const;
     void paintFace(int fi);
+    // Peint plusieurs faces d'un coup (6.2 : toutes les faces sélectionnées
+    // sont peintes, sinon seule la face cliquée l'est).
+    void paintFaces(const std::vector<int>& faces);
     void setBrushColor(const Color& c);
+
+    // --- Ordre z des faces (devant / derrière) ---
+    // Les faces sélectionnées (cible « triangle ») avancent (]) ou reculent
+    // ([) d'un cran dans l'ordre de dessin du plan : une face avancée est
+    // dessinée par-dessus celles qui la recouvraient (et se sélectionne en
+    // premier). Chaque déplacement est une étape annulable.
+    void faceForward();
+    void faceBackward();
 
     // --- Fichiers ---
     bool saveToLocation(const std::string& name);
