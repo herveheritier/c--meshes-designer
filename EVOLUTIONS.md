@@ -34,7 +34,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · `<commit>` — Image de fond en calque (7.7) : bouton « Calque » du
+- 2026-08-12 · `c4e4d52` — Image de fond en calque (7.7) : bouton « Calque » du
   groupe Scène — charger une image PNG/JPEG (stb_image) affichée derrière la
   grille et les plans, opacité et visibilité réglables, manipulation à la
   souris au canvas (déplacer, pivoter autour du centre, échelle — vertical
