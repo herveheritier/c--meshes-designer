@@ -342,15 +342,17 @@ void Renderer::destroyTexture(unsigned tex) {
 void Renderer::drawTexturedQuad(unsigned tex, const Vec2& p0, const Vec2& p1, const Vec2& p2,
                                 const Vec2& p3, const Color& tint) {
     if (!tex || !progTex_) return;
-    // Sommets entrelacés (position, UV) : (0,0)→(1,0)→(1,1)→(0,1) dans l'ordre
-    // trigonométrique p0→p1→p2→p3. Ligne 0 de la texture = bas (flip au
-    // chargement), donc v=1 = haut de l'image.
+    // Sommets entrelacés (position, UV). Ordre en zigzag du quad p0(p1-p3)-p2
+    // pour un TRIANGLE_STRIP : un strip crée les triangles (v0,v1,v2) et
+    // (v1,v2,v3) ; dans l'ordre cyclique p0,p1,p2,p3 ils partageraient l'arête
+    // p1-p2 (le bord droit) et ne couvriraient que la moitié droite du quad.
+    // Ligne 0 de la texture = bas (flip au chargement), donc v=1 = haut.
     struct V {
         float x, y, u, v;
     };
     const V verts[4] = {
         {p0.x, p0.y, 0.0f, 0.0f}, {p1.x, p1.y, 1.0f, 0.0f},
-        {p2.x, p2.y, 1.0f, 1.0f}, {p3.x, p3.y, 0.0f, 1.0f}};
+        {p3.x, p3.y, 0.0f, 1.0f}, {p2.x, p2.y, 1.0f, 1.0f}};
     glUseProgram(progTex_);
     glBindVertexArray(vaoTex_);
     glBindBuffer(GL_ARRAY_BUFFER, vboTex_);
