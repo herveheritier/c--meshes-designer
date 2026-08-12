@@ -23,10 +23,16 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-Aucune évolution en attente — la liste est vide. 🎉
+- [ ] ajouter la possibilité de tracer un polygone et le transformer automatiquement en un assemblage de triangles à la validation
+- [ ] améliorer gestion de la boite à outils ; les paquets de boutons doivent pouvoir être ouverts ou fermés chaque paquet est générer par un bouton dédié
 
 ## Effectuées
 
+- **Poignées de redimensionnement du calque** (17e7cac) — l'outil Échelle du
+  calque affiche 8 poignées au canvas : milieux des arêtes gauche/droite =
+  axe X (largeur), haut/bas = axe Y (hauteur), coins = les deux axes ; la
+  saisie d'une poignée redimensionne en gardant fixe l'arête / le coin opposé
+  (rotation conservée), les gestes libres restant disponibles.
 - **Transparence du calque d'image** (151b672) — le bouton Calque gagne la
   molette pour ajuster l'opacité par pas de 5 % (une étape annulable par
   salve), et le curseur du popup est exprimé de 0 à 100 % avec un incrément
