@@ -27,7 +27,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · `<commit>` — Réticule miroir (9.2) : 4e état du réticule (Y) —
+- 2026-08-12 · `5def6bb` — Réticule miroir (9.2) : 4e état du réticule (Y) —
   croix de visée au curseur et à ses trois reflets à travers les axes du monde
   (axe X, axe Y, symétrie centrale) : pendant un tracé ou un déplacement, on
   voit en direct où tomberaient les points symétriques de la position courante
