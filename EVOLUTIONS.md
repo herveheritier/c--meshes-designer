@@ -26,7 +26,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 (à venir) - Barre d'outils repliable par paquet : chaque paquet
+- 2026-08-12 (a4b3715) - Barre d'outils repliable par paquet : chaque paquet
   de boutons possède un bouton dédié qui l'ouvre ou le ferme — le bouton porte
   un **symbole SVG identifiant le sujet du paquet** (grille, œil, cible,
   étoile, engrenage… — réutilisation des icônes des boutons) suivi d'un petit
