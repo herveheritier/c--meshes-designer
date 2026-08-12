@@ -803,7 +803,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 72);  // toutes les icônes du dossier assets/ (1 ajoutée : calque)
+    CHECK(n == 73);  // toutes les icônes du dossier assets/ (1 ajoutée : lasso)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux

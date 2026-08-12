@@ -336,6 +336,26 @@ Une sélection de plusieurs faces garde son **ordre relatif** et pousse devant /
 derrière elle les faces non sélectionnées. Aux bornes (déjà au premier ou au
 dernier plan), rien ne change. Chaque déplacement est une **étape annulable**.
 
+### 5.10 Sélection au lasso
+
+En plus de la sélection rectangulaire (clic gauche + glisser), le bouton
+**Lasso** du paquet Sélection permet de **tracer librement** un contour autour
+des éléments à sélectionner d'un coup :
+
+- **Armer** : cliquer sur le bouton Lasso (ou clic droit / Échap pour
+  désarmer) ;
+- **Tracer** : clic gauche + glisser au canvas — le polygone est affiché en
+  direct (contour cyan + remplissage translucide), échantillonné tous les ~6 px
+  écran ;
+- **Relâcher** : les éléments du **plan actif** dont le point de référence est
+  dans le contour sont sélectionnés — **sommet** par sa position, **segment**
+  par son milieu, **triangle** par son centre (selon la cible active) ;
+- **Maj au relâchement** : ajoute à la sélection courante au lieu de la
+  remplacer.
+
+Comme le rectangle, le lasso ne déplace jamais la géométrie. Un tracé trop
+court (moins de 3 points) ne sélectionne rien.
+
 ---
 
 ## 6. Couleurs et peinture

@@ -171,6 +171,8 @@ void App::newDocument() {
     dirty = false;
     sceneTool = SceneTool::None;
     layerTool = LayerTool::None;
+    lassoArmed = false;
+    lassoPts.clear();
     bgColor = kBgDefault;
     camera.reset();
     cameraFramed = false;
@@ -405,6 +407,32 @@ void App::update(float dt) {
                 beginLayerDrag(mouseWorld, mouseScreen);
             } else if (io.MouseClicked[1]) {
                 toggleLayerTool(LayerTool::None);  // clic droit : désarmer
+            }
+        }
+        return;
+    }
+
+    // --- Sélection au lasso (5.9) : tracer librement autour des éléments à
+    // sélectionner. Le mode armé monopolise le canvas ; clic droit ou Échap
+    // désarme. Maj au relâchement = ajoute à la sélection, sinon remplace.
+    if (lassoArmed) {
+        if (drag_.kind == DragKind::Lasso) {
+            if (io.MouseDown[0]) {
+                // Échantillonnage du tracé : un point tous les ~6 px écran.
+                if (lassoPts.empty() || distance(lassoPts.back(), mouseScreen) >= 6.0f)
+                    lassoPts.push_back(mouseScreen);
+            } else {
+                applyLassoSelection();
+                drag_.kind = DragKind::None;
+                lassoPts.clear();
+            }
+        } else if (drag_.kind == DragKind::None) {
+            if (io.MouseClicked[0]) {
+                drag_.kind = DragKind::Lasso;
+                lassoPts.clear();
+                lassoPts.push_back(mouseScreen);
+            } else if (io.MouseClicked[1]) {
+                toggleLasso();  // clic droit : désarmer
             }
         }
         return;
@@ -1180,23 +1208,81 @@ void App::handleSelectRelease(const Vec2& screen) {
     };
 
     if (!io.KeyShift) clearSelection();
+    collectSelectionInside(inBox);
+    setStatus("Sélection rectangulaire (" + std::to_string(selectionCount()) + " élément(s))");
+}
+
+// ---------------------------------------------------------------------------
+// Sélection au lasso (5.9) : tracé libre + sélection des éléments contenus
+// ---------------------------------------------------------------------------
+void App::toggleLasso() {
+    if (lassoArmed) {
+        lassoArmed = false;
+        lassoPts.clear();
+        if (drag_.kind == DragKind::Lasso) drag_.kind = DragKind::None;
+        setStatus("Sélection au lasso désarmée");
+        return;
+    }
+    // Le lasso monopolise le canvas : le mode Scène, l'outil calque et les
+    // modes transitoires se désarment, l'outil revient à la sélection.
+    sceneTool = SceneTool::None;
+    layerTool = LayerTool::None;
+    brushArmed = false;
+    measureActive = false;
+    mergeMode = MergeMode::Off;
+    cutPts.clear();
+    triP1 = triP2 = -1;
+    if (drag_.kind != DragKind::None) drag_.kind = DragKind::None;
+    if (tool != Tool::Select) {
+        tool = Tool::Select;
+        setStatus("Lasso : l'outil revient à la sélection");
+    }
+    lassoArmed = true;
+    setStatus("Sélection au lasso armée — clic gauche + glisser au canvas : "
+              "encercler les éléments à sélectionner (Maj au relâchement : "
+              "ajouter) · clic droit ou Échap : désarmer");
+}
+
+void App::applyLassoSelection() {
+    if (lassoPts.size() < 3) {
+        setStatus("Lasso : tracé trop court");
+        return;
+    }
+    // Le tracé est en pixels écran : on le projette dans le monde (le polygone
+    // suit la vue telle qu'elle est au relâchement).
+    std::vector<Vec2> poly;
+    poly.reserve(lassoPts.size());
+    for (const Vec2& s : lassoPts) poly.push_back(camera.screenToWorld(s, viewportVec2()));
+
+    // Même critère que la sélection rectangulaire : sommet par sa position,
+    // segment par son milieu, triangle par son centre (plan actif uniquement).
+    const ImGuiIO& io = ImGui::GetIO();
+    if (!io.KeyShift) clearSelection();
+    auto inside = [&](const Vec2& w) { return pointInPolygon(w, poly); };
+    collectSelectionInside(inside);
+    setStatus("Sélection au lasso (" + std::to_string(selectionCount()) + " élément(s))");
+}
+
+void App::collectSelectionInside(const std::function<bool(const Vec2&)>& inside) {
     if (selMode == SelMode::Vertex) {
         for (int i = 0; i < (int)scene.activePlane().vertices.size(); ++i)
-            if (inBox(scene.activePlane().vertices[i])) selVerts.push_back(i);
+            if (inside(scene.activePlane().vertices[i])) selVerts.push_back(i);
     } else if (selMode == SelMode::Edge) {
         for (const auto& e : scene.activePlane().edges()) {
-            const Vec2 mid = (scene.activePlane().vertices[e.first] + scene.activePlane().vertices[e.second]) * 0.5f;
-            if (inBox(mid)) selEdges.push_back(e);
+            const Vec2 mid =
+                (scene.activePlane().vertices[e.first] +
+                 scene.activePlane().vertices[e.second]) * 0.5f;
+            if (inside(mid)) selEdges.push_back(e);
         }
     } else {
         for (int fi = 0; fi < (int)scene.activePlane().faces.size(); ++fi) {
             Vec2 c;
-            for (int v : scene.activePlane().faces[fi].verts) c = c + scene.activePlane().vertices[v];
+            for (int v : scene.activePlane().faces[fi].verts)
+                c = c + scene.activePlane().vertices[v];
             c = c / (float)scene.activePlane().faces[fi].verts.size();
-            if (inBox(c)) selFaces.push_back(fi);
+            if (inside(c)) selFaces.push_back(fi);
         }
     }
-    setStatus("Sélection rectangulaire (" + std::to_string(selectionCount()) + " élément(s))");
 }
 
 bool App::pickNearestOnly(const Vec2& world) {
@@ -1798,6 +1884,8 @@ void App::toggleSceneTool(SceneTool t) {
         cutPts.clear();
         triP1 = triP2 = -1;
         layerTool = LayerTool::None;
+        lassoArmed = false;
+        lassoPts.clear();
         if (tool != Tool::Select) {
             tool = Tool::Select;
             setStatus("Mode scène : les outils d'édition sont désarmés");
@@ -1964,6 +2052,8 @@ void App::toggleLayerTool(LayerTool t) {
         mergeMode = MergeMode::Off;
         cutPts.clear();
         triP1 = triP2 = -1;
+        lassoArmed = false;
+        lassoPts.clear();
         if (tool != Tool::Select) {
             tool = Tool::Select;
             setStatus("Calque : les outils d'édition sont désarmés");
@@ -2500,6 +2590,9 @@ void App::toggleKiosk() {
         const ImGuiIO& io = ImGui::GetIO();
         kioskX = io.MousePos.x - viewportPos.x;
         kioskFresh = true;
+        // Les modes qui monopolisent le canvas se désarment en entrant au kiosque.
+        lassoArmed = false;
+        lassoPts.clear();
         setStatus("Kiosque — déplacez la souris ou utilisez ←/→ : le plan en avant "
                   "est pré-sélectionné ; clic gauche : choisir ; Échap ou clic droit : sortir");
     } else {
@@ -2649,6 +2742,8 @@ void App::resetScene() {
     dirty = false;
     sceneTool = SceneTool::None;      // 8.5 : le mode scène se désarme aussi
     layerTool = LayerTool::None;      // 7.7 : le calque (retiré avec la scène) aussi
+    lassoArmed = false;               // 5.9 : le lasso se désarme aussi
+    lassoPts.clear();
     bgColor = kBgDefault;             // fond par défaut (ardoise)
     camera.reset();
     cameraFramed = false;
@@ -2676,6 +2771,14 @@ void App::onEscape() {
         }
         layerTool = LayerTool::None;
         setStatus("Manipulation du calque désarmée");
+        return;
+    }
+    // Sélection au lasso (5.9) : Échap annule le tracé en cours et désarme.
+    if (lassoArmed) {
+        lassoPts.clear();
+        if (drag_.kind == DragKind::Lasso) drag_.kind = DragKind::None;
+        lassoArmed = false;
+        setStatus("Sélection au lasso désarmée");
         return;
     }
     // Mode scène (8.5) : Échap annule la saisie en cours puis désarme l'outil.
@@ -3660,6 +3763,31 @@ void App::drawDragPreview() {
         }
         renderer.drawLines(segs, kPreview);
         renderer.drawPoints({cur}, 6.0f, kPreview);
+    }
+
+    // Tracé de la sélection au lasso (5.9) : contour cyan + remplissage
+    // translucide, comme l'aperçu de l'outil découpe.
+    if (drag_.kind == DragKind::Lasso && lassoPts.size() >= 2) {
+        std::vector<Vec2> poly = lassoPts;  // écran → monde (projection actuelle)
+        for (Vec2& p : poly) p = camera.screenToWorld(p, viewportVec2());
+        std::vector<Vec2> segs;
+        segs.reserve(poly.size() * 2 + 2);
+        for (size_t i = 0; i + 1 < poly.size(); ++i) {
+            segs.push_back(poly[i]);
+            segs.push_back(poly[i + 1]);
+        }
+        if (lassoPts.size() >= 3) {
+            segs.push_back(poly.back());
+            segs.push_back(poly.front());
+            std::vector<int> tris;
+            if (triangulatePolygon(poly, tris)) {
+                std::vector<Vec2> fill;
+                fill.reserve(tris.size());
+                for (int k : tris) fill.push_back(poly[k]);
+                renderer.drawTriangles(fill, kPreviewFill);
+            }
+        }
+        renderer.drawLines(segs, kPreview);
     }
 }
 

@@ -652,7 +652,7 @@ void toolbar(App& app) {
         const std::string selCount = std::to_string(app.selectionCount());
         const float selPillW =
             pillWidth(selCount.c_str(), nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
-        placePack(packW({toolBtnWidth(targetLabel), bw, selPillW}));
+        placePack(packW({toolBtnWidth(targetLabel), bw, bw, selPillW}));
         if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
                         false, kGreen, false, targetLabel))
             app.cycleTarget();
@@ -680,6 +680,20 @@ void toolbar(App& app) {
             }
             ImGui::EndPopup();
         }
+        // Lasso (5.9) : tracé libre autour des éléments à sélectionner d'un
+        // coup (sommet par sa position, segment par son milieu, triangle par
+        // son centre) — Maj au relâchement ajoute à la sélection.
+        ImGui::SameLine();
+        if (toolBtnIcon(
+                "lasso",
+                app.lassoArmed
+                    ? "Sélection au lasso armée — clic gauche + glisser : encercler "
+                      "les éléments à sélectionner (Maj : ajouter) · clic droit ou "
+                      "Échap : désarmer"
+                    : "Sélection au lasso (5.9) : tracer librement autour des "
+                      "sommets, segments ou faces à sélectionner d'un coup",
+                app.lassoArmed, kGreen, false))
+            app.toggleLasso();
         // Compteur TOUJOURS présent (0 inclus), à largeur fixe : la barre ne
         // change pas de dimension selon la sélection.
         ImGui::SameLine();
@@ -1877,6 +1891,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic gauche (entité) : sélectionner · Maj+clic : basculer");
         ImGui::BulletText("Pinceau : clic gauche peint le triangle survolé — ou tous les triangles sélectionnés (cible « triangle »)");
         ImGui::BulletText("Clic gauche + glisser : rectangle de sélection (ne déplace jamais)");
+        ImGui::BulletText("Lasso (bouton du paquet Sélection) : tracer librement autour des éléments à sélectionner d'un coup — sommet par sa position, segment par son milieu, triangle par son centre · Maj au relâchement : ajouter · clic droit ou Échap : désarmer");
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");

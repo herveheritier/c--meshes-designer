@@ -23,9 +23,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] sélection au lasso : entourer d'un tracé libre (ou d'un rectangle de
-  sélection) plusieurs sommets, segments ou faces d'un coup, en plus de la
-  sélection clic par clic.
 - [ ] opacité par plan : régler la transparence de chaque plan indépendamment
   (les faces ont déjà leur propre opacité), pour superposer des plans en les
   laissant visibles les uns à travers les autres.
@@ -34,6 +31,14 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-12 · `<commit>` — Sélection au lasso (5.10) : bouton « Lasso » du paquet
+  Sélection — tracer librement un contour au canvas (polygone affiché en
+  direct, échantillonné tous les ~6 px écran) puis sélectionner d'un coup les
+  sommets (position), segments (milieu) ou triangles (centre) du plan actif
+  contenus dans le contour ; Maj au relâchement ajoute à la sélection au lieu
+  de remplacer. Le mode armé monopolise le canvas (clic droit ou Échap
+  désarme, désarme aussi les autres modes) ; le tracé ne déplace jamais la
+  géométrie. Icône lasso.svg, aide et infobulles mises à jour.
 - 2026-08-12 · `c4e4d52` — Image de fond en calque (7.7) : bouton « Calque » du
   groupe Scène — charger une image PNG/JPEG (stb_image) affichée derrière la
   grille et les plans, opacité et visibilité réglables, manipulation à la

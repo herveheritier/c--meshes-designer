@@ -6,6 +6,7 @@
 
 #include <imgui.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -30,7 +31,7 @@ enum class LayerTool { None, Move, Rotate, Scale };
 
 // --- Drag en cours ---
 enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale,
-                      LayerMove, LayerRotate, LayerScale };
+                      LayerMove, LayerRotate, LayerScale, Lasso };
 
 struct Drag {
     DragKind kind = DragKind::None;
@@ -97,6 +98,20 @@ public:
     // Dialogue « Charger une image… » (popup Calque).
     bool dlgLayerOpen = false;
     char dlgLayerPath[1024] = {0};
+
+    // --- Sélection au lasso (5.9) ---
+    // Armé depuis le bouton « Lasso » du paquet Sélection : le canvas sert
+    // alors à tracer librement un polygone (en pixels écran) autour des
+    // éléments à sélectionner ; relâcher applique la sélection (Maj = ajoute),
+    // clic droit ou Échap désarme.
+    bool lassoArmed = false;
+    std::vector<Vec2> lassoPts;  // tracé en cours (coordonnées écran, échantillonné)
+    void toggleLasso();          // arme / désarme la sélection au lasso
+    void applyLassoSelection();  // sélectionne les éléments dans le polygone
+    // Sélectionne les éléments du plan actif dont le point de référence
+    // (sommet : position, segment : milieu, triangle : centre) satisfait
+    // `inside` — partagé entre rectangle (5.1) et lasso (5.10).
+    void collectSelectionInside(const std::function<bool(const Vec2&)>& inside);
 
     // --- Sélection & outils ---
     SelMode selMode = SelMode::Vertex;
