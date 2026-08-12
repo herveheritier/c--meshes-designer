@@ -27,6 +27,13 @@ Aucune évolution en attente — la liste est vide. 🎉
 
 ## Effectuées
 
+- **Transparence du calque d'image** (151b672) — le bouton Calque gagne la
+  molette pour ajuster l'opacité par pas de 5 % (une étape annulable par
+  salve), et le curseur du popup est exprimé de 0 à 100 % avec un incrément
+  de 1.
+- **Transparence de la palette** (151b672) — le curseur d'opacité du pinceau
+  est exprimé de 0 à 100 avec un incrément de 1 (défaut 45).
+
 - 2026-08-12 · `2e006b2` — Pipette de couleur (6.5) : bouton « Pipette » du
   paquet Outils — armé, le curseur devient une petite cible et un clic gauche
   sur le canvas prélève la couleur réellement affichée (faces peintes, calque
