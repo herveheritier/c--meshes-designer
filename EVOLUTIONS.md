@@ -32,7 +32,9 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   calque affiche 8 poignées au canvas : milieux des arêtes gauche/droite =
   axe X (largeur), haut/bas = axe Y (hauteur), coins = les deux axes ; la
   saisie d'une poignée redimensionne en gardant fixe l'arête / le coin opposé
-  (rotation conservée), les gestes libres restant disponibles.
+  (rotation conservée), les gestes libres restant disponibles. Les **coins
+  préservent le rapport x/y** du calque (cb6cc75) — un seul facteur le long
+  de la diagonale, pas de distorsion.
 - **Calque mémorisé** (a92d849) — la position, la rotation et l'échelle du
   calque d'image sont persistées dans prefs.json et rappelées au démarrage ;
   la synchronisation de la texture en drawScene réapplique la transformée
