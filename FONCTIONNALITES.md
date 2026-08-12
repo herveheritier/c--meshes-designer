@@ -383,9 +383,10 @@ sélectionne comme en mode normal.
 
 ### 6.3 Opacité
 
-Un curseur d'opacité (défaut 45 %) règle l'opacité appliquée à **chaque** peinture.
-Choisir une couleur ne change pas l'opacité courante ; l'opacité est **conservée**
-d'une session à l'autre.
+Un curseur d'opacité (défaut 45 %, exprimé **de 0 à 100 avec un incrément de
+1**) règle l'opacité appliquée à **chaque** peinture. Choisir une couleur ne
+change pas l'opacité courante ; l'opacité est **conservée** d'une session à
+l'autre.
 
 ### 6.4 Conservation des couleurs
 
@@ -491,7 +492,9 @@ Le popup du bouton permet de :
 
 - **Charger une image…** (chemin d'un fichier PNG/JPEG) — l'image apparaît
   centrée à ~la moitié de la vue ;
-- régler l'**opacité** (curseur) et la **visibilité** ;
+- régler l'**opacité** (curseur exprimé de 0 à 100 % avec un incrément de 1,
+  ou **molette sur le bouton Calque** par pas de 5 % — une seule étape
+  annulable par salve) et la **visibilité** ;
 - **manipuler le calque au canvas** : trois outils armables (comme le mode
   Scène, clic droit ou Échap pour désarmer) —
   - **Déplacer** : clic gauche + glisser ;

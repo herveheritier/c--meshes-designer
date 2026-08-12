@@ -113,6 +113,8 @@ public:
     // 7.8 : une seule étape annulable par salve de molette sur le bouton
     // « Opacité du plan actif » (réarmée quand la molette s'arrête).
     bool opacUndoPushed_ = false;
+    // Molette sur le bouton « Calque » : une seule étape annulable par salve.
+    bool layerOpacUndoPushed_ = false;
 
     // --- Pipette de couleur (6.5) ---
     // Armée depuis le paquet Outils : un clic gauche sur le canvas prélève la

@@ -1079,9 +1079,24 @@ void toolbar(App& app) {
                             ? "Manipulation du calque armée — voir l'outil choisi dans "
                               "le popup · clic droit ou Échap au canvas : désarmer"
                             : "Image de fond (calque) : clic pour charger une image, "
-                              "régler son opacité, ou la manipuler au canvas (7.7)",
+                              "régler son opacité (0 à 100 %), ou la manipuler au canvas "
+                              "(7.7) · molette : ajuster l'opacité vite",
                         layerArmed, layerLoaded ? kAmber : kGreen, false))
             ImGui::OpenPopup("##layermenu");
+        // Molette sur le bouton : opacité du calque par pas de 5 % (une seule
+        // étape annulable par salve, comme le bouton « Opacité » des plans).
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && layerLoaded) {
+            ImageLayer& il = app.scene.image;
+            if (!app.layerOpacUndoPushed_) {
+                app.pushUndo();
+                app.layerOpacUndoPushed_ = true;
+            }
+            il.opacity = std::clamp(il.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
+            app.dirty = true;
+            app.setStatus("Opacité du calque : " +
+                          std::to_string((int)std::lround(il.opacity * 100.0f)) + " %");
+        }
+        if (io.MouseWheel == 0.0f) app.layerOpacUndoPushed_ = false;
         layerPopup(app);
         bgColorPopup(app);
         ImGui::PopID();
@@ -1651,11 +1666,14 @@ void layerPopup(App& app) {
         app.toggleLayerTool(LayerTool::Scale);
     ImGui::Separator();
 
-    // Opacité : une étape annulable par manipulation complète du curseur.
+    // Opacité du calque : exprimée de 0 à 100 % avec un incrément de 1 (une
+    // étape annulable par manipulation complète du curseur).
     ImGui::TextDisabled("Opacité :");
     ImGui::SetNextItemWidth(210.0f);
-    if (ImGui::SliderFloat("##layerop", &app.scene.image.opacity, 0.0f, 1.0f, "%.2f")) {
+    int layerOpac = (int)std::lround(app.scene.image.opacity * 100.0f);
+    if (ImGui::SliderInt("##layerop", &layerOpac, 0, 100, "%d %%")) {
         if (ImGui::IsItemActivated()) app.pushUndo();
+        app.scene.image.opacity = layerOpac / 100.0f;
         app.dirty = true;
     }
     if (ImGui::Checkbox("Calque visible", &app.scene.image.visible)) {
@@ -1855,8 +1873,11 @@ void palettePanel(App& app) {
         ImGui::Separator();
         ImGui::TextUnformatted("Opacité appliquée à chaque peinture :");
         ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##op", &app.brushOpacity, 0.05f, 1.0f, "%.0f %%"))
-            app.brushOpacity = std::clamp(app.brushOpacity, 0.05f, 1.0f);
+        // Exprimée de 0 à 100 % avec un incrément de 1 (0 % = peinture invisible,
+        // défaut 45 %).
+        int brushOpac = (int)std::lround(app.brushOpacity * 100.0f);
+        if (ImGui::SliderInt("##op", &brushOpac, 0, 100, "%d %%"))
+            app.brushOpacity = std::clamp(brushOpac / 100.0f, 0.0f, 1.0f);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Opacité des prochaines peintures (défaut 45 %%).");
         ImGui::Separator();
