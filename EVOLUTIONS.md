@@ -34,13 +34,13 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-12 · Kiosque : la forme de chaque plan est agrandie au maximum dans
+- 2026-08-12 · `8d12b9f` — Kiosque : la forme de chaque plan est agrandie au maximum dans
   sa carte sans jamais déborder (~80 % de la surface pour les proportions
   proches de la carte, un peu moins pour les formes « rondes ») — la taille
   rendue ne dépend plus de la taille de la forme dans le monde (l'ancien
   calcul divisait deux fois par l'envergure : une forme 10× plus grande
   rendait 10× plus petite).
-- 2026-08-12 · Ordre z des faces : une face (ou une sélection de faces, cible
+- 2026-08-12 · `8d12b9f` — Ordre z des faces : une face (ou une sélection de faces, cible
   « triangle ») se déplace d'un cran vers l'avant ou l'arrière dans l'ordre de
   dessin du plan — boutons avant / arrière du paquet « Ordre z » de la barre
   d'outils, raccourcis ] / [. Une face avancée est dessinée au-dessus de celles
@@ -48,10 +48,23 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   plusieurs faces garde son ordre relatif et pousse devant / derrière elle les
   faces non sélectionnées ; aux bornes, rien ne change. Chaque déplacement est
   une étape annulable.
-- 2026-08-12 · Peinture : avec des triangles sélectionnés (cible
+- 2026-08-12 · `8d12b9f` — Peinture : avec des triangles sélectionnés (cible
   « triangle »), un seul clic du pinceau peint tous les triangles sélectionnés
   d'un coup ; sans sélection, seul le triangle cliqué est peint (comportement
   historique conservé).
+- 2026-08-12 · `8d12b9f` — Mode Scène (8.5) : un paquet de boutons agit sur
+  toute la scène — saisir (déplacer tous les plans d'un même décalage),
+  rotation (autour du point de saisie), mise à l'échelle, couleur du fond du
+  canvas et réinitialisation. Chaque action se pilote à la souris (clic
+  gauche + glisser au canvas) avec un repère visuel (cercle de pivot, badge en
+  direct) ; un geste = une étape annulable, un clic sans glisser ne crée rien,
+  clic droit ou Échap désarme. Armer un outil Scène désarme les modes
+  transitoires (pinceau, mesure, fusion, tracés).
+- 2026-08-12 · `8d12b9f` — Préférences : la couleur du fond du canvas et
+  l'outil du mode Scène armé sont persistés dans prefs.json (compatibilité
+  ascendante : un fichier sans ces champs garde les valeurs par défaut) ; au
+  passage, le parseur JSON accepte désormais les espaces après une virgule
+  (bug latent corrigé).
 
 - 2026-08-12 · `0244129` — Découpe d'un plan par un polygone (outil découpe,
   raccourci D) : on trace à main levée un polygone qui chevauche des faces déjà
