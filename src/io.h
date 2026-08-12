@@ -80,6 +80,8 @@ struct PrefsData {
     Color bgColor = kBgDefault;           // couleur de fond du canvas (8.5)
     int sceneTool = 0;                    // outil du mode Scène armé : 0 = aucun, 1 = saisir,
                                           // 2 = rotation, 3 = échelle (8.5)
+    ImageLayer image;                     // calque mémorisé (7.9) : chemin +
+                                          // position / rotation / échelle
     std::vector<std::string> versions;    // noms des versions horodatées de l'autosave (10 max)
     bool consoleVisible = false;
     float consoleX = 0.0f, consoleY = 0.0f;

@@ -103,7 +103,9 @@ void App::init() {
     loadPrefsFile();
     loadAutoFile();
     if (scene.countVerts() == 0 && undoStack.empty()) {
-        // Scène de démonstration au premier lancement : plusieurs plans.
+        // Scène de démonstration au premier lancement : plusieurs plans. Le
+        // calque mémorisé (7.9) survit à la démo (scene.clear() le retirerait).
+        const ImageLayer rememberedImage = scene.image;
         scene.clear();
 
         // Plan 1 : rectangle + étoile.
@@ -144,6 +146,8 @@ void App::init() {
         const int q3 = p2.addVertex({-2.4f, 1.8f});
         if (p2.addTriangulatedFace({q0, q1, q2, q3}) > 0)
             paintFrom(b1, {0.95f, 0.45f, 0.30f, 0.45f});
+        // Le calque mémorisé (7.9) est restauré sur la scène de démonstration.
+        scene.image = rememberedImage;
     }
     setStatus("Bienvenue ! Clic gauche : poser un point (3 clics = un triangle). "
               "Clic droit : déplacer la sélection. Molette : zoom.");
@@ -681,17 +685,28 @@ void App::drawScene() {
 
     // Calque d'image (7.7) : synchronise la texture avec scene.image.path
     // (chargement / déchargement quand le chemin change — chargement d'une
-    // scène, annulation, réinitialisation…).
+    // scène, annulation, réinitialisation, démarrage avec calque mémorisé…).
     if (scene.image.path != imageLoadedPath) {
         if (imageTex) {
             renderer.destroyTexture(imageTex);
             imageTex = 0;
         }
         if (!scene.image.path.empty()) {
+            // La transformée (position, rotation, échelle, opacité, visibilité)
+            // vient de l'état restauré (scène chargée, préférences 7.9, undo) :
+            // loadImageLayer ne décode que la texture — on la réapplique après.
+            const ImageLayer saved = scene.image;
             if (!loadImageLayer(scene.image.path)) {
                 // Échec (fichier introuvable, format…) : le calque est retiré,
                 // le statut a été posé par loadImageLayer.
                 scene.image = ImageLayer{};
+            } else {
+                scene.image.center = saved.center;
+                scene.image.rotation = saved.rotation;
+                scene.image.scaleX = saved.scaleX;
+                scene.image.scaleY = saved.scaleY;
+                scene.image.opacity = saved.opacity;
+                scene.image.visible = saved.visible;
             }
         }
         imageLoadedPath = scene.image.path;
@@ -3257,6 +3272,7 @@ void App::savePrefsFile() {
     p.snapOn = snapOn;
     p.bgColor = bgColor;
     p.sceneTool = (int)sceneTool;
+    p.image = scene.image;   // calque mémorisé (7.9) : chemin + transformée
     p.versions = versionFiles;
     p.consoleVisible = consoleVisible;
     p.consoleX = consolePos.x;
@@ -3296,6 +3312,9 @@ void App::loadPrefsFile() {
     bgColor = p.bgColor;
     bgColor.a = 1.0f;
     sceneTool = (SceneTool)std::clamp(p.sceneTool, 0, 3);
+    // Calque mémorisé (7.9) : rappelé si les préférences en portent un (un
+    // autosave plus récent, chargé après, le remplace s'il a le sien).
+    if (!p.image.path.empty()) scene.image = p.image;
     versionFiles = p.versions;
     if (versionFiles.size() > 10) versionFiles.resize(10);
 }

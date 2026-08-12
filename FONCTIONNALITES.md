@@ -532,6 +532,22 @@ salve = une étape annulable).
 - elle est **enregistrée avec la scène** (JSON) et **annulable** (curseur : une
   étape par manipulation). Un fichier ancien sans opacité charge 100 %.
 
+### 7.9 Calque mémorisé
+
+La **position, la rotation et l'échelle** du calque d'image sont **mémorisées
+entre les sessions** : à la fermeture de l'application (ou à chaque sauvegarde
+régulière des préférences), le chemin du fichier image avec sa transformée est
+écrit dans `prefs.json` ; au démarrage, le calque revient **tel qu'on l'a
+laissé** (même endroit, même orientation, mêmes dimensions) sans avoir à
+recharger ni re-régler l'image.
+
+- Un **autosave** plus récent garde la priorité (il contient déjà l'état
+  complet du calque) ; les préférences servent de mémoire de secours (premier
+  lancement, autosave absent) ;
+- la scène de démonstration du premier lancement affiche le calque mémorisé ;
+- un fichier de préférences sans calque (ou avec un chemin vide) ne rappelle
+  rien (compatibilité ascendante).
+
 ---
 
 ## 8. Navigation de la vue

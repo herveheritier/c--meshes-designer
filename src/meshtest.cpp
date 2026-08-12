@@ -694,6 +694,16 @@ static void testSpecFormats() {
         p.locations = {"sceneA", "sceneB"};
         p.bgColor = {0.2f, 0.4f, 0.6f, 1.0f};
         p.sceneTool = 2;  // rotation
+        // Calque mémorisé (7.9) : chemin + position / rotation / échelle.
+        p.image.path = "/data/logo.png";
+        p.image.center = {3.5f, -2.25f};
+        p.image.rotation = 0.7f;
+        p.image.scaleX = 0.04f;
+        p.image.scaleY = 0.09f;
+        p.image.opacity = 0.8f;
+        p.image.visible = false;
+        p.image.w = 640;
+        p.image.h = 480;
         CHECK(savePrefsJson(p, "/tmp/meshtest_prefs.json").ok);
         PrefsData back;
         CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs.json").ok);
@@ -705,6 +715,19 @@ static void testSpecFormats() {
         CHECK(back.locations.size() == 2 && back.locations[1] == "sceneB");
         CHECK(back.bgColor.r == 0.2f && back.bgColor.g == 0.4f && back.bgColor.b == 0.6f);
         CHECK(back.sceneTool == 2);
+        // Le calque mémorisé revient tel quel (position, rotation, échelle).
+        CHECK(back.image.path == "/data/logo.png");
+        CHECK(back.image.center.x == 3.5f && back.image.center.y == -2.25f);
+        CHECK(back.image.rotation == 0.7f);
+        CHECK(back.image.scaleX == 0.04f && back.image.scaleY == 0.09f);
+        CHECK(back.image.opacity == 0.8f && !back.image.visible);
+        CHECK(back.image.w == 640 && back.image.h == 480);
+        // Préférences sans calque : aucun calque rappelé (compat ascendante).
+        PrefsData empty;
+        CHECK(savePrefsJson(empty, "/tmp/meshtest_prefs2.json").ok);
+        PrefsData back2;
+        CHECK(loadPrefsJson(back2, "/tmp/meshtest_prefs2.json").ok);
+        CHECK(back2.image.path.empty());
     }
 
     // Autosave : scène multi-plans + undo/redo (scènes complètes)
