@@ -116,6 +116,23 @@ icônes (sans libellé visible) ; le verbe de chaque action est indiqué dans un
 état : actif (vert), mode particulier (ambre, anneau…), ou **grisé** quand
 l'action n'est pas disponible.
 
+Chaque **paquet** possède un **bouton dédié** en tête du paquet : il porte un
+**symbole** (icône SVG) qui **identifie le sujet du paquet** — grille pour
+Canevas, œil pour Affichage, cible pour Sélection, étoile pour Outils,
+engrenage pour Interface… — suivi d'un petit **chevron d'état**. Un clic sur
+ce bouton **ouvre ou ferme** le paquet :
+
+- **ouvert** (chevron ▼ vert) : les boutons du paquet sont affichés à la suite
+  du bouton ;
+- **fermé** (chevron ►) : les boutons sont masqués — seul le bouton (symbole
+  + chevron) reste, ce qui permet d'identifier le paquet et de le rouvrir
+  d'un clic ; l'espace libéré est réutilisé (la barre continue de se replier
+  automatiquement sur la largeur de la fenêtre) ;
+- un **clic** sur le bouton bascule le paquet (l'infobulle rappelle le nom du
+  paquet et ce qu'il contient) ;
+- l'état **ouvert/fermé** de chaque paquet est **mémorisé entre les sessions**
+  (tous ouverts par défaut).
+
 Paquets, dans l'ordre :
 
 1. **Canevas** : grille, aimant, pas de grille, réticule.

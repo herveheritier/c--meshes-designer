@@ -831,6 +831,8 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     con.obj.emplace_back("w", JVal::num(p.consoleW));
     con.obj.emplace_back("h", JVal::num(p.consoleH));
     v.obj.emplace_back("console", con);
+    // Paquets de la barre d'outils ouverts (3.2) : un bit par paquet.
+    v.obj.emplace_back("toolbarPacks", JVal::num((double)p.toolbarPacks));
     IoResult r;
     r.ok = writeText(path, dumpJson(v) + "\n", r.error);
     return r;
@@ -906,6 +908,9 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
         if (con->getNum("w", d)) out.consoleW = (float)d;
         if (con->getNum("h", d)) out.consoleH = (float)d;
     }
+    // Paquets de la barre d'outils (3.2) : entier bit-à-bit ; absent (fichier
+    // ancien) → tous ouverts (défaut conservé par `out`).
+    if (root.getNum("toolbarPacks", d)) out.toolbarPacks = (uint32_t)d;
     p = std::move(out);
     return {true, ""};
 }

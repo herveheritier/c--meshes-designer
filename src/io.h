@@ -1,6 +1,7 @@
 #pragma once
 #include "mesh.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -87,6 +88,9 @@ struct PrefsData {
     bool consoleVisible = false;
     float consoleX = 0.0f, consoleY = 0.0f;
     float consoleW = 520.0f, consoleH = 220.0f;
+    // Paquets de la barre d'outils (3.2) : un bit par paquet (bit i = paquet
+    // i affiché) — tous ouverts par défaut ; l'état est rappelé entre sessions.
+    uint32_t toolbarPacks = 0xFFFFFFFFu;
 };
 
 IoResult savePrefsJson(const PrefsData& p, const std::string& path);

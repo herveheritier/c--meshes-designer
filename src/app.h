@@ -291,6 +291,13 @@ public:
     bool alignOpen = false;
     bool settingsOpen = false;            // panneau « Réglages »
 
+    // --- Barre d'outils (3.2) ---
+    // Un bit par paquet de boutons (bit i = paquet i affiché) : chaque paquet
+    // possède un bouton dédié (chevron ▼/►) qui l'ouvre / le ferme. L'état est
+    // mémorisé dans prefs.json (champ « toolbarPacks ») et rappelé au
+    // démarrage. Tous les paquets sont ouverts par défaut.
+    uint32_t toolbarPacks = 0xFFFFFFFFu;
+
     // --- Prévisualisation & performance ---
     PreviewMode preview = PreviewMode::Off;
     bool showRedraw = false;            // touche F : compteur de redessins

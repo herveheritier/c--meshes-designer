@@ -994,6 +994,9 @@ static void testSpecFormats() {
         p.locations = {"sceneA", "sceneB"};
         p.bgColor = {0.2f, 0.4f, 0.6f, 1.0f};
         p.sceneTool = 2;  // rotation
+        // Paquets de la barre d'outils (3.2) : un bit par paquet, certains
+        // repliés — l'état doit revenir tel quel.
+        p.toolbarPacks = 0x5A5A5Au;
         // Calque mémorisé (7.9) : chemin + position / rotation / échelle.
         p.image.path = "/data/logo.png";
         p.image.center = {3.5f, -2.25f};
@@ -1016,6 +1019,7 @@ static void testSpecFormats() {
         CHECK(back.locations.size() == 2 && back.locations[1] == "sceneB");
         CHECK(back.bgColor.r == 0.2f && back.bgColor.g == 0.4f && back.bgColor.b == 0.6f);
         CHECK(back.sceneTool == 2);
+        CHECK(back.toolbarPacks == 0x5A5A5Au);
         // Le calque mémorisé revient tel quel (position, rotation, échelle).
         CHECK(back.image.path == "/data/logo.png");
         CHECK(back.image.center.x == 3.5f && back.image.center.y == -2.25f);
@@ -1085,6 +1089,8 @@ static void testSpecFormats() {
         CHECK(back.bgColor.r == kBgDefault.r && back.bgColor.g == kBgDefault.g &&
               back.bgColor.b == kBgDefault.b);
         CHECK(back.sceneTool == 0);
+        // Paquets de la barre d'outils : champ absent → tous ouverts (défaut).
+        CHECK(back.toolbarPacks == 0xFFFFFFFFu);
     }
 }
 

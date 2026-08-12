@@ -3458,6 +3458,7 @@ void App::savePrefsFile() {
     p.consoleY = consolePos.y;
     p.consoleW = consoleSize.x;
     p.consoleH = consoleSize.y;
+    p.toolbarPacks = toolbarPacks;   // paquets de la barre d'outils ouverts (3.2)
     savePrefsJson(p, prefsDir() + "prefs.json");
 }
 
@@ -3496,6 +3497,9 @@ void App::loadPrefsFile() {
     // Calque mémorisé (7.9) : rappelé si les préférences en portent un (un
     // autosave plus récent, chargé après, le remplace s'il a le sien).
     if (!p.image.path.empty()) scene.image = p.image;
+    // Paquets de la barre d'outils (3.2) : l'état ouvert/fermé revient tel
+    // quel (un fichier sans le champ garde tous les paquets ouverts).
+    toolbarPacks = p.toolbarPacks;
     versionFiles = p.versions;
     if (versionFiles.size() > 10) versionFiles.resize(10);
 }

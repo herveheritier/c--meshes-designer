@@ -43,6 +43,26 @@ constexpr float kPiF = 3.14159265358979323846f;
 // commune des boutons de dialogues) pour qu'elles ne puissent pas dériver.
 constexpr float kBtnAutoPad = 22.0f;
 
+// Paquets de la barre d'outils (3.2) : chaque paquet possède un bouton dédié
+// qui l'ouvre / le ferme — le bouton porte un SYMBOLE SVG identifiant le
+// sujet du paquet (réutilise les icônes des boutons) suivi d'un petit chevron
+// d'état (▼ ouvert / ► fermé). L'état (1 bit par paquet) est mémorisé dans
+// les préférences (prefs.json, champ « toolbarPacks »).
+enum ToolbarPack : int {
+    kPackCanevas, kPackAffichage, kPackVue, kPackSelection,
+    kPackPressePapiers, kPackOutils, kPackOrdreZ, kPackFusion,
+    kPackAnnuler, kPackSauvegarde, kPackEntrees, kPackPlansNav,
+    kPackPlansEdition, kPackPlansOrdre, kPackPlansGestion, kPackScene,
+    kPackInterface, kPackCount
+};
+static_assert(kPackCount <= 32, "un paquet = un bit de App::toolbarPacks (uint32)");
+
+// Largeur d'un bouton de bascule de paquet (3.2) : symbole SVG du paquet
+// (14 px) + petit chevron d'état (▼/►) — plus étroit que les boutons à
+// icônes (~32 px) pour rester discret quand le paquet est replié (une rangée
+// de boutons ne prend que quelques pixels chacun).
+constexpr float kPackToggleW = 30.0f;
+
 // Hauteur d'un bouton à icône (police + rembourrage vertical du cadre).
 float btnFrameHeight() { return ImGui::GetFontSize() + 2.0f * kBtnFramePad.y; }
 
@@ -558,45 +578,102 @@ void toolbar(App& app) {
         }
     };
 
+    // Bouton dédié d'un paquet (3.2) : chevron ▼ (ouvert) / ► (fermé) — un
+    // clic ouvre/ferme le paquet, l'état (1 bit) est mémorisé dans les
+    // préférences. Le chevron et le contenu forment UNE seule unité de repli :
+    // fermé, seul le chevron reste (le paquet se rouvre d'un clic). À appeler
+    // AVANT le contenu du paquet (avec sa largeur réelle `contentW`) : rend le
+    // chevron puis place la suite sur la même ligne si le paquet est ouvert.
+    // Retourne vrai si le contenu doit être affiché.
+    auto packToggle = [&](ToolbarPack idx, const char* icon, const char* name,
+                          const char* detail, float contentW) -> bool {
+        const bool open = (app.toolbarPacks & (1u << idx)) != 0;
+        // Comptabilité exacte : bouton + contenu = (n+1) items avec n écarts —
+        // `contentW` (packW) ne compte que les écarts ENTRE les items du
+        // contenu (n-1) ; l'écart bouton → 1er item est ajouté ici.
+        placePack(open ? spacing + kPackToggleW + contentW : kPackToggleW);
+        const float h = btnFrameHeight();
+        ImGui::PushID(2000 + idx);  // ID stable, distinct des boutons d'icônes
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.10f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.16f));
+        const bool clicked = ImGui::Button("##pack", ImVec2(kPackToggleW, h));
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+        ImGui::PopID();
+        if (clicked) {
+            app.toolbarPacks ^= (1u << idx);
+            app.setStatus(open ? std::string("Paquet « ") + name + " » masqué"
+                               : std::string("Paquet « ") + name + " » affiché");
+        }
+        // Symbole du paquet à gauche (son sujet) + petit chevron d'état à
+        // droite : ▼ vert quand le contenu est visible, ► sinon. Le symbole
+        // identifie le paquet même replié ; si l'icône est introuvable, seul
+        // le chevron reste (le bouton fonctionne quand même).
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const float cy = (min.y + ImGui::GetItemRectMax().y) * 0.5f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        drawSvgIconNamed(dl, icon, ImVec2(min.x + 3.0f, cy - 7.0f), 14.0f,
+                         open ? IM_COL32(230, 236, 246, 240) : kDimCol);
+        const float chx = min.x + kPackToggleW - 8.0f;
+        const float r = 3.0f;
+        if (open) {
+            dl->AddTriangleFilled(ImVec2(chx - r, cy - r), ImVec2(chx + r, cy - r),
+                                  ImVec2(chx, cy + r), IM_COL32(120, 220, 140, 245));
+        } else {
+            dl->AddTriangleFilled(ImVec2(chx - r, cy - r), ImVec2(chx - r, cy + r),
+                                  ImVec2(chx + r, cy), kDimCol);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("« %s » — %s · clic : %s", name, detail,
+                              open ? "replier" : "déplier");
+        if (open) ImGui::SameLine();
+        return open;
+    };
+
     // --- Paquet Canevas : grille, aimant, pas, réticule ---
     {
         const float stepW = ImGui::CalcTextSize("100.00").x + 10.0f;
-        placePack(packW({bw, bw, stepW, bw}));
-        if (toolBtnIcon("grid",
-                        "Grille (G) : afficher/masquer · molette : ajuster le pas · "
-                        "clic du milieu : réinitialiser",
-                        app.gridOn, kGreen, false))
-            app.gridOn = !app.gridOn;
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-            app.gridStep = std::clamp(app.gridStep * std::pow(1.25f, io.MouseWheel),
-                                      0.01f, 100.0f);
-            app.setStatus("Pas de grille : " + std::to_string(app.gridStep));
+        if (packToggle(kPackCanevas, "grid", "Canevas",
+                       "grille, aimant, pas, réticule",
+                       packW({bw, bw, stepW, bw}))) {
+            if (toolBtnIcon("grid",
+                            "Grille (G) : afficher/masquer · molette : ajuster le pas · "
+                            "clic du milieu : réinitialiser",
+                            app.gridOn, kGreen, false))
+                app.gridOn = !app.gridOn;
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+                app.gridStep = std::clamp(app.gridStep * std::pow(1.25f, io.MouseWheel),
+                                          0.01f, 100.0f);
+                app.setStatus("Pas de grille : " + std::to_string(app.gridStep));
+            }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
+                app.gridStep = 1.0f;
+                app.setStatus("Pas de grille réinitialisé (1.0)");
+            }
+            ImGui::SameLine();
+            // Bouton Aimant : active / désactive l'aimantation, indépendamment de
+            // l'affichage de la grille. Vert = aimantation active.
+            if (toolBtnIcon("magnet", "Aimantation (Maj+G) : aimanter les points posés et "
+                            "déplacés sur la grille",
+                            app.snapOn, kGreen, false)) {
+                app.snapOn = !app.snapOn;
+                app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
+                                         : "Aimantation désactivée (Maj+G)");
+            }
+            ImGui::SameLine();
+            // Cellule du pas de grille à largeur FIXE (la valeur ne décale pas la barre).
+            {
+                char stepbuf[16];
+                std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
+                valueLabel(stepbuf, stepW);
+            }
+            ImGui::SameLine();
+            if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique / miroir",
+                            app.reticle != ReticleState::Off, kGreen, false))
+                app.cycleReticle();
         }
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
-            app.gridStep = 1.0f;
-            app.setStatus("Pas de grille réinitialisé (1.0)");
-        }
-        ImGui::SameLine();
-        // Bouton Aimant : active / désactive l'aimantation, indépendamment de
-        // l'affichage de la grille. Vert = aimantation active.
-        if (toolBtnIcon("magnet", "Aimantation (Maj+G) : aimanter les points posés et "
-                        "déplacés sur la grille",
-                        app.snapOn, kGreen, false)) {
-            app.snapOn = !app.snapOn;
-            app.setStatus(app.snapOn ? "Aimantation activée (Maj+G)"
-                                     : "Aimantation désactivée (Maj+G)");
-        }
-        ImGui::SameLine();
-        // Cellule du pas de grille à largeur FIXE (la valeur ne décale pas la barre).
-        {
-            char stepbuf[16];
-            std::snprintf(stepbuf, sizeof(stepbuf), "%.2f", app.gridStep);
-            valueLabel(stepbuf, stepW);
-        }
-        ImGui::SameLine();
-        if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique / miroir",
-                        app.reticle != ReticleState::Off, kGreen, false))
-            app.cycleReticle();
     }
 
     // --- Paquet Affichage : prévisualisation, toutes couleurs, fps ---
@@ -605,50 +682,56 @@ void toolbar(App& app) {
         std::snprintf(fpsbuf, sizeof(fpsbuf), "%.0f fps", app.fps);
         const float fpsW =
             pillWidth(fpsbuf, "fps", ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
-        placePack(packW({bw, bw, fpsW}));
-        if (toolBtnIcon("preview", "Prévisualiser (P) : aperçu simple → tous les plans → édition",
-                        app.preview != PreviewMode::Off, kAmber, false))
-            app.cyclePreview();
-        ImGui::SameLine();
-        // Affichage des plans (7.6) : clic = cycle normal → toutes couleurs →
-        // filaire → normal. L'icône et l'infobulle suivent l'état courant.
-        if (toolBtnIcon(app.wireframe ? "wireframe" : "show-all-fills",
-                        app.wireframe
-                            ? "Mode filaire : arêtes seules, sans remplissage — "
-                              "clic : revenir au rendu normal (7.6)"
-                            : app.allColors
-                                ? "Toutes couleurs : remplir tous les plans pendant "
-                                  "l'édition — clic : mode filaire (7.6)"
-                                : "Rendu normal : seul le plan actif est rempli — "
-                                  "clic : toutes couleurs (7.6)",
-                        app.allColors || app.wireframe, kGreen, false))
-            app.cycleFillMode();
-        ImGui::SameLine();
-        pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
-             ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
+        if (packToggle(kPackAffichage, "preview", "Affichage",
+                       "prévisualisation, couleurs, images par seconde",
+                       packW({bw, bw, fpsW}))) {
+            if (toolBtnIcon("preview", "Prévisualiser (P) : aperçu simple → tous les plans → édition",
+                            app.preview != PreviewMode::Off, kAmber, false))
+                app.cyclePreview();
+            ImGui::SameLine();
+            // Affichage des plans (7.6) : clic = cycle normal → toutes couleurs →
+            // filaire → normal. L'icône et l'infobulle suivent l'état courant.
+            if (toolBtnIcon(app.wireframe ? "wireframe" : "show-all-fills",
+                            app.wireframe
+                                ? "Mode filaire : arêtes seules, sans remplissage — "
+                                  "clic : revenir au rendu normal (7.6)"
+                                : app.allColors
+                                    ? "Toutes couleurs : remplir tous les plans pendant "
+                                      "l'édition — clic : mode filaire (7.6)"
+                                    : "Rendu normal : seul le plan actif est rempli — "
+                                      "clic : toutes couleurs (7.6)",
+                            app.allColors || app.wireframe, kGreen, false))
+                app.cycleFillMode();
+            ImGui::SameLine();
+            pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
+                 ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);
+        }
     }
 
     // --- Paquet Vue : tout afficher, cadrer, mesure ---
     {
-        placePack(packW({bw, bw, bw}));
-        if (toolBtnIcon("fit-view",
-                        "Tout afficher (Accueil) : zoom automatique sur la scène entière",
-                        false, kGreen, false))
-            app.frameView();
-        ImGui::SameLine();
-        if (toolBtnIcon("fit-selection",
-                        "Cadrer la sélection (Ctrl+F) : zoom automatique sur la "
-                        "sélection courante",
-                        false, kGreen, false))
-            app.frameSelection();
-        ImGui::SameLine();
-        if (toolBtnIcon("measure",
-                        app.measureActive
-                            ? "Outil mesure armé — 2 clics : distance affichée au HUD "
-                              "(Ctrl+M pour désarmer)"
-                            : "Outil mesure (Ctrl+M) : distance entre deux points",
-                        app.measureActive, kGreen, false))
-            app.toggleMeasure();
+        if (packToggle(kPackVue, "fit-view", "Vue",
+                       "tout afficher, cadrer la sélection, mesure",
+                       packW({bw, bw, bw}))) {
+            if (toolBtnIcon("fit-view",
+                            "Tout afficher (Accueil) : zoom automatique sur la scène entière",
+                            false, kGreen, false))
+                app.frameView();
+            ImGui::SameLine();
+            if (toolBtnIcon("fit-selection",
+                            "Cadrer la sélection (Ctrl+F) : zoom automatique sur la "
+                            "sélection courante",
+                            false, kGreen, false))
+                app.frameSelection();
+            ImGui::SameLine();
+            if (toolBtnIcon("measure",
+                            app.measureActive
+                                ? "Outil mesure armé — 2 clics : distance affichée au HUD "
+                                  "(Ctrl+M pour désarmer)"
+                                : "Outil mesure (Ctrl+M) : distance entre deux points",
+                            app.measureActive, kGreen, false))
+                app.toggleMeasure();
+        }
     }
 
     // --- Paquet Sélection : cible, tout sélectionner (+menu), compteur ---
@@ -657,180 +740,193 @@ void toolbar(App& app) {
         const std::string selCount = std::to_string(app.selectionCount());
         const float selPillW =
             pillWidth(selCount.c_str(), nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
-        placePack(packW({toolBtnWidth(targetLabel), bw, bw, selPillW}));
-        if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
-                        false, kGreen, false, targetLabel))
-            app.cycleTarget();
-        ImGui::SameLine();
-        // Clic gauche = tout sélectionner (Ctrl+A) ; clic droit = menu contextuel.
-        if (toolBtnIcon("select-all",
-                        "Sélection — clic gauche : tout sélectionner (Ctrl+A) · "
-                        "clic droit : menu (tout / inverser)",
-                        false, kGreen, false))
-            app.selectAll();
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
-        // Les choix contextuels s'affichent sous forme de BOUTONS (visibles et
-        // larges), pas de simples entrées de menu.
-        if (ImGui::BeginPopup("##selmenu")) {
-            ImGui::TextDisabled("Actions sur la sélection (selon la cible) :");
-            if (toolBtnIcon("select-all", "Tout sélectionner (Ctrl+A)", false, kGreen,
-                            false, "Tout sélectionner", 190.0f)) {
+        if (packToggle(kPackSelection, "selection-mode", "Sélection",
+                       "cible, tout sélectionner, lasso, compteur",
+                       packW({toolBtnWidth(targetLabel), bw, bw, selPillW}))) {
+            if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
+                            false, kGreen, false, targetLabel))
+                app.cycleTarget();
+            ImGui::SameLine();
+            // Clic gauche = tout sélectionner (Ctrl+A) ; clic droit = menu contextuel.
+            if (toolBtnIcon("select-all",
+                            "Sélection — clic gauche : tout sélectionner (Ctrl+A) · "
+                            "clic droit : menu (tout / inverser)",
+                            false, kGreen, false))
                 app.selectAll();
-                ImGui::CloseCurrentPopup();
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##selmenu");
+            // Les choix contextuels s'affichent sous forme de BOUTONS (visibles et
+            // larges), pas de simples entrées de menu.
+            if (ImGui::BeginPopup("##selmenu")) {
+                ImGui::TextDisabled("Actions sur la sélection (selon la cible) :");
+                if (toolBtnIcon("select-all", "Tout sélectionner (Ctrl+A)", false, kGreen,
+                                false, "Tout sélectionner", 190.0f)) {
+                    app.selectAll();
+                    ImGui::CloseCurrentPopup();
+                }
+                if (toolBtnIcon("invert-selection", "Inverser la sélection (Ctrl+I)", false,
+                                kGreen, false, "Inverser la sélection", 190.0f)) {
+                    app.invertSelection();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
             }
-            if (toolBtnIcon("invert-selection", "Inverser la sélection (Ctrl+I)", false,
-                            kGreen, false, "Inverser la sélection", 190.0f)) {
-                app.invertSelection();
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
+            // Lasso (5.9) : tracé libre autour des éléments à sélectionner d'un
+            // coup (sommet par sa position, segment par son milieu, triangle par
+            // son centre) — Maj au relâchement ajoute à la sélection.
+            ImGui::SameLine();
+            if (toolBtnIcon(
+                    "lasso",
+                    app.lassoArmed
+                        ? "Sélection au lasso armée — clic gauche + glisser : encercler "
+                          "les éléments à sélectionner (Maj : ajouter) · clic droit ou "
+                          "Échap : désarmer"
+                        : "Sélection au lasso (5.9) : tracer librement autour des "
+                          "sommets, segments ou faces à sélectionner d'un coup",
+                    app.lassoArmed, kGreen, false))
+                app.toggleLasso();
+            // Compteur TOUJOURS présent (0 inclus), à largeur fixe : la barre ne
+            // change pas de dimension selon la sélection.
+            ImGui::SameLine();
+            pill("##pillsel", selCount.c_str(), kGreen, nullptr,
+                 ImGui::CalcTextSize("9999").x + 18.0f);
         }
-        // Lasso (5.9) : tracé libre autour des éléments à sélectionner d'un
-        // coup (sommet par sa position, segment par son milieu, triangle par
-        // son centre) — Maj au relâchement ajoute à la sélection.
-        ImGui::SameLine();
-        if (toolBtnIcon(
-                "lasso",
-                app.lassoArmed
-                    ? "Sélection au lasso armée — clic gauche + glisser : encercler "
-                      "les éléments à sélectionner (Maj : ajouter) · clic droit ou "
-                      "Échap : désarmer"
-                    : "Sélection au lasso (5.9) : tracer librement autour des "
-                      "sommets, segments ou faces à sélectionner d'un coup",
-                app.lassoArmed, kGreen, false))
-            app.toggleLasso();
-        // Compteur TOUJOURS présent (0 inclus), à largeur fixe : la barre ne
-        // change pas de dimension selon la sélection.
-        ImGui::SameLine();
-        pill("##pillsel", selCount.c_str(), kGreen, nullptr,
-             ImGui::CalcTextSize("9999").x + 18.0f);
     }
 
     // --- Paquet Presse-papiers : copier, couper, coller, dupliquer ---
     {
-        placePack(packW({bw, bw, bw, bw}));
-        if (toolBtnIcon("copy", "Copier (Ctrl+C) — points + triangles entièrement contenus",
-                        false, kGreen, app.selectionCount() == 0))
-            app.copySelection();
-        ImGui::SameLine();
-        if (toolBtnIcon("cut", "Couper (Ctrl+X)", false, kGreen, app.selectionCount() == 0))
-            app.cutSelection();
-        ImGui::SameLine();
-        if (toolBtnIcon("paste", "Coller (Ctrl+V) — chaque collage décale d'un demi-pas de grille",
-                        false, kGreen, !app.hasClip))
-            app.pasteClipboard();
-        ImGui::SameLine();
-        if (toolBtnIcon("duplicate",
-                        "Dupliquer la sélection (Ctrl+D) — copie légèrement décalée, "
-                        "prête à déplacer",
-                        false, kGreen, app.selectionCount() == 0))
-            app.duplicateSelection();
+        if (packToggle(kPackPressePapiers, "copy", "Presse-papiers",
+                       "copier, couper, coller, dupliquer",
+                       packW({bw, bw, bw, bw}))) {
+            if (toolBtnIcon("copy", "Copier (Ctrl+C) — points + triangles entièrement contenus",
+                            false, kGreen, app.selectionCount() == 0))
+                app.copySelection();
+            ImGui::SameLine();
+            if (toolBtnIcon("cut", "Couper (Ctrl+X)", false, kGreen, app.selectionCount() == 0))
+                app.cutSelection();
+            ImGui::SameLine();
+            if (toolBtnIcon("paste", "Coller (Ctrl+V) — chaque collage décale d'un demi-pas de grille",
+                            false, kGreen, !app.hasClip))
+                app.pasteClipboard();
+            ImGui::SameLine();
+            if (toolBtnIcon("duplicate",
+                            "Dupliquer la sélection (Ctrl+D) — copie légèrement décalée, "
+                            "prête à déplacer",
+                            false, kGreen, app.selectionCount() == 0))
+                app.duplicateSelection();
+        }
     }
 
     // --- Paquet Outils : peinture, pipette, aligner, rotation, échelle,
-    // découpe, formes ---
+    // découpe, polygone, formes ---
     {
-        placePack(packW({bw, bw, bw, bw, bw, bw, bw}));
-        if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
-                        app.paletteOpen, kGreen, false))
-            app.paletteOpen = !app.paletteOpen;
-        ImGui::SameLine();
-        // Pipette (6.5) : prélever la couleur affichée au canvas (faces, image
-        // de fond, couleur du fond…) et la poser comme couleur de pinceau.
-        if (toolBtnIcon("pipette",
-                        app.pipetteArmed
-                            ? "Pipette armée — clic gauche sur le canvas : prélever la "
-                              "couleur affichée · clic droit ou Échap : désarmer"
-                            : "Pipette (6.5) : prélever une couleur affichée au canvas "
-                              "(faces, calque d'image, fond…) et en faire la couleur "
-                              "du pinceau",
-                        app.pipetteArmed, kGreen, false))
-            app.togglePipette();
-        ImGui::SameLine();
-        if (toolBtnIcon("align", "Aligner / répartir la sélection", app.alignOpen, kGreen,
-                        false))
-            app.alignOpen = !app.alignOpen;
-        ImGui::SameLine();
-        if (toolBtnIcon("rotate", "Rotation précise (Alt+R) : saisir un angle exact",
-                        app.dlgRotateOpen, kGreen, false))
-            app.dlgRotateOpen = !app.dlgRotateOpen;
-        ImGui::SameLine();
-        if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
-                        app.dlgScaleOpen, kGreen, false))
-            app.dlgScaleOpen = !app.dlgScaleOpen;
-        ImGui::SameLine();
-        if (toolBtnIcon("shape-cut",
-                        "Découper le plan avec un polygone (D) — clics gauches : "
-                        "sommets du polygone · clic droit ou Entrée : découper "
-                        "(soustraction) · l'outil reste armé : chaque découpe "
-                        "s'ajoute à la même étape annulable jusqu'à Échap / D · "
-                        "Retour arrière : retirer le dernier point",
-                        app.isCutArmed(), kGreen, false))
-            app.toggleCutTool();
-        ImGui::SameLine();
-        if (toolBtnIcon("shape-polygon",  // icône distincte pour éviter conflit ID ImGui
-                        "Tracer un polygone et le trianguler automatiquement (U) — "
-                        "clics gauches : sommets du polygone · clic droit ou Entrée : "
-                        "valider et créer les triangles · Retour arrière : dernier point",
-                        app.isPolygonArmed(), kGreen, false))
-            app.togglePolygonTool();
-        ImGui::SameLine();
-        if (toolBtnIcon("shapes",
-                        "Formes prédéfinies — clic : menu contextuel "
-                        "(cercle, carré, étoile, anneau, couronne…) · molette : "
-                        "côtés/pointes si une forme à côtés est armée",
-                        app.isShapeArmed(), kGreen, false))
-            ImGui::OpenPopup("##shapesmenu");
-        // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
-        // Couronne : la molette suit la phase du tracé — extérieurs tant que le
-        // rayon n'est pas verrouillé, intérieurs après le 2e clic ; Maj+molette
-        // force l'autre jeu de côtés.
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
-            (app.tool == Tool::Circle || app.tool == Tool::Ring || app.tool == Tool::Star ||
-             app.tool == Tool::Crown)) {
-            // La molette suit la phase du tracé (comme le canvas) : extérieurs
-            // tant que le rayon n'est pas verrouillé, intérieurs après le 2e
-            // clic ; Maj+molette force l'autre jeu de côtés.
-            if (app.tool == Tool::Crown) {
-                const bool adjustInner = io.KeyShift != app.crownInnerPhase();
-                if (adjustInner)
-                    app.crownInnerSides =
-                        std::clamp(app.crownInnerSides + (int)std::lround(io.MouseWheel), 3, 64);
-                else
+        if (packToggle(kPackOutils, "shapes", "Outils",
+                       "peinture, pipette, aligner, rotation, échelle, découpe, "
+                       "polygone, formes",
+                       packW({bw, bw, bw, bw, bw, bw, bw, bw}))) {
+            if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
+                            app.paletteOpen, kGreen, false))
+                app.paletteOpen = !app.paletteOpen;
+            ImGui::SameLine();
+            // Pipette (6.5) : prélever la couleur affichée au canvas (faces, image
+            // de fond, couleur du fond…) et la poser comme couleur de pinceau.
+            if (toolBtnIcon("pipette",
+                            app.pipetteArmed
+                                ? "Pipette armée — clic gauche sur le canvas : prélever la "
+                                  "couleur affichée · clic droit ou Échap : désarmer"
+                                : "Pipette (6.5) : prélever une couleur affichée au canvas "
+                                  "(faces, calque d'image, fond…) et en faire la couleur "
+                                  "du pinceau",
+                            app.pipetteArmed, kGreen, false))
+                app.togglePipette();
+            ImGui::SameLine();
+            if (toolBtnIcon("align", "Aligner / répartir la sélection", app.alignOpen, kGreen,
+                            false))
+                app.alignOpen = !app.alignOpen;
+            ImGui::SameLine();
+            if (toolBtnIcon("rotate", "Rotation précise (Alt+R) : saisir un angle exact",
+                            app.dlgRotateOpen, kGreen, false))
+                app.dlgRotateOpen = !app.dlgRotateOpen;
+            ImGui::SameLine();
+            if (toolBtnIcon("scale", "Mise à l'échelle précise (Alt+S) : saisir un facteur",
+                            app.dlgScaleOpen, kGreen, false))
+                app.dlgScaleOpen = !app.dlgScaleOpen;
+            ImGui::SameLine();
+            if (toolBtnIcon("shape-cut",
+                            "Découper le plan avec un polygone (D) — clics gauches : "
+                            "sommets du polygone · clic droit ou Entrée : découper "
+                            "(soustraction) · l'outil reste armé : chaque découpe "
+                            "s'ajoute à la même étape annulable jusqu'à Échap / D · "
+                            "Retour arrière : retirer le dernier point",
+                            app.isCutArmed(), kGreen, false))
+                app.toggleCutTool();
+            ImGui::SameLine();
+            if (toolBtnIcon("shape-polygon",  // icône distincte pour éviter conflit ID ImGui
+                            "Tracer un polygone et le trianguler automatiquement (U) — "
+                            "clics gauches : sommets du polygone · clic droit ou Entrée : "
+                            "valider et créer les triangles · Retour arrière : dernier point",
+                            app.isPolygonArmed(), kGreen, false))
+                app.togglePolygonTool();
+            ImGui::SameLine();
+            if (toolBtnIcon("shapes",
+                            "Formes prédéfinies — clic : menu contextuel "
+                            "(cercle, carré, étoile, anneau, couronne…) · molette : "
+                            "côtés/pointes si une forme à côtés est armée",
+                            app.isShapeArmed(), kGreen, false))
+                ImGui::OpenPopup("##shapesmenu");
+            // Molette sur le bouton : règle les côtés/pointes si la forme armée en a.
+            // Couronne : la molette suit la phase du tracé — extérieurs tant que le
+            // rayon n'est pas verrouillé, intérieurs après le 2e clic ; Maj+molette
+            // force l'autre jeu de côtés.
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f &&
+                (app.tool == Tool::Circle || app.tool == Tool::Ring ||
+                 app.tool == Tool::Star || app.tool == Tool::Crown)) {
+                // La molette suit la phase du tracé (comme le canvas) : extérieurs
+                // tant que le rayon n'est pas verrouillé, intérieurs après le 2e
+                // clic ; Maj+molette force l'autre jeu de côtés.
+                if (app.tool == Tool::Crown) {
+                    const bool adjustInner = io.KeyShift != app.crownInnerPhase();
+                    if (adjustInner)
+                        app.crownInnerSides =
+                            std::clamp(app.crownInnerSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    else
+                        app.circleSides =
+                            std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
+                    app.statusCrown();
+                } else {
                     app.circleSides =
                         std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-                app.statusCrown();
-            } else {
-                app.circleSides =
-                    std::clamp(app.circleSides + (int)std::lround(io.MouseWheel), 3, 64);
-                app.setStatus("Nombre de " +
-                              std::string(app.tool == Tool::Star
-                                              ? "pointes de l'étoile"
-                                              : "côtés du " +
-                                                    std::string(app.tool == Tool::Circle
-                                                                    ? "cercle"
-                                                                    : "anneau")) +
-                              " : " + std::to_string(app.circleSides));
+                    app.setStatus("Nombre de " +
+                                  std::string(app.tool == Tool::Star
+                                                  ? "pointes de l'étoile"
+                                                  : "côtés du " +
+                                                        std::string(app.tool == Tool::Circle
+                                                                        ? "cercle"
+                                                                        : "anneau")) +
+                                  " : " + std::to_string(app.circleSides));
+                }
             }
+            shapesMenu(app);
         }
-        shapesMenu(app);
     }
 
     // --- Paquet Ordre z des faces : avant (]) / arrière ([) ---
     {
         const bool hasFaces = app.selMode == SelMode::Face && !app.selFaces.empty();
-        placePack(packW({bw, bw}));
-        if (toolBtnIcon("face-front",
-                        "Faces sélectionnées vers l'avant (]) : dessinées au-dessus "
-                        "de celles qui les recouvraient",
-                        false, kGreen, !hasFaces))
-            app.faceForward();
-        ImGui::SameLine();
-        if (toolBtnIcon("face-back",
-                        "Faces sélectionnées vers l'arrière ([) : passées sous celles "
-                        "qui les recouvraient",
-                        false, kGreen, !hasFaces))
-            app.faceBackward();
+        if (packToggle(kPackOrdreZ, "face-front", "Ordre z",
+                       "faces sélectionnées devant / derrière",
+                       packW({bw, bw}))) {
+            if (toolBtnIcon("face-front",
+                            "Faces sélectionnées vers l'avant (]) : dessinées au-dessus "
+                            "de celles qui les recouvraient",
+                            false, kGreen, !hasFaces))
+                app.faceForward();
+            ImGui::SameLine();
+            if (toolBtnIcon("face-back",
+                            "Faces sélectionnées vers l'arrière ([) : passées sous celles "
+                            "qui les recouvraient",
+                            false, kGreen, !hasFaces))
+                app.faceBackward();
+        }
     }
 
     // --- Paquet Fusion des points (5.5 / 5.6) ---
@@ -839,40 +935,43 @@ void toolbar(App& app) {
         const bool mergeCanArm = app.selMode == SelMode::Vertex && app.selVerts.size() == 1;
         const bool mergeCanGroup = app.selMode == SelMode::Vertex && app.selVerts.size() >= 2;
         const float radW = ImGui::CalcTextSize("64").x;
-        placePack(mergeArmed ? packW({bw, radW}) : packW({bw}));
-        if (toolBtnIcon(
-                "merge-points",
-                mergeArmed
-                    ? "Fusion par déplacement armée — glissez le point sélectionné près "
-                      "d'un autre point pour les fusionner · molette : rayon (8-64 px) · "
-                      "re-clic : verrouiller puis désarmer"
-                    : "Fusionner les points superposés (5.5, anneau orange) · avec 1 point "
-                      "sélectionné : armer la fusion par déplacement (5.6)",
-                mergeArmed, kGreen, !(mergeArmed || mergeCanArm || mergeCanGroup)))
-            app.toggleMergeMode();
-        // Cadenas sur le coin du bouton quand le mode est verrouillé (5.6).
-        if (app.mergeMode == App::MergeMode::Locked) {
-            const ImVec2 bmin = ImGui::GetItemRectMin();
-            const ImVec2 bmax = ImGui::GetItemRectMax();
-            drawSvgIconNamed(ImGui::GetWindowDrawList(), "merge-lock",
-                             ImVec2(bmax.x - 13.0f, bmin.y + 1.0f), 11.0f,
-                             IM_COL32(255, 255, 255, 235));
-        }
-        // Molette sur le bouton : rayon de fusion (8 à 64 px écran).
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-            // lround : un cran de molette vaut ±1 (les roues à défilement lisse
-            // envoient des fractions ; l'arrondi évite un réglage muet).
-            app.mergeRadius =
-                std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
-            app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
-        }
-        // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6),
-        // à largeur FIXE pour ne pas décaler la barre quand la valeur change.
-        if (mergeArmed) {
-            ImGui::SameLine();
-            char radbuf[8];
-            std::snprintf(radbuf, sizeof(radbuf), "%d", app.mergeRadius);
-            valueLabel(radbuf, radW);
+        if (packToggle(kPackFusion, "merge-points", "Fusion",
+                       "fusionner les points superposés (5.5/5.6)",
+                       mergeArmed ? packW({bw, radW}) : packW({bw}))) {
+            if (toolBtnIcon(
+                    "merge-points",
+                    mergeArmed
+                        ? "Fusion par déplacement armée — glissez le point sélectionné près "
+                          "d'un autre point pour les fusionner · molette : rayon (8-64 px) · "
+                          "re-clic : verrouiller puis désarmer"
+                        : "Fusionner les points superposés (5.5, anneau orange) · avec 1 point "
+                          "sélectionné : armer la fusion par déplacement (5.6)",
+                    mergeArmed, kGreen, !(mergeArmed || mergeCanArm || mergeCanGroup)))
+                app.toggleMergeMode();
+            // Cadenas sur le coin du bouton quand le mode est verrouillé (5.6).
+            if (app.mergeMode == App::MergeMode::Locked) {
+                const ImVec2 bmin = ImGui::GetItemRectMin();
+                const ImVec2 bmax = ImGui::GetItemRectMax();
+                drawSvgIconNamed(ImGui::GetWindowDrawList(), "merge-lock",
+                                 ImVec2(bmax.x - 13.0f, bmin.y + 1.0f), 11.0f,
+                                 IM_COL32(255, 255, 255, 235));
+            }
+            // Molette sur le bouton : rayon de fusion (8 à 64 px écran).
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+                // lround : un cran de molette vaut ±1 (les roues à défilement lisse
+                // envoient des fractions ; l'arrondi évite un réglage muet).
+                app.mergeRadius =
+                    std::clamp(app.mergeRadius + (int)std::lround(io.MouseWheel) * 2, 8, 64);
+                app.setStatus("Rayon de fusion : " + std::to_string(app.mergeRadius) + " px");
+            }
+            // Le rayon s'affiche à côté du bouton tant que le mode est armé (5.6),
+            // à largeur FIXE pour ne pas décaler la barre quand la valeur change.
+            if (mergeArmed) {
+                ImGui::SameLine();
+                char radbuf[8];
+                std::snprintf(radbuf, sizeof(radbuf), "%d", app.mergeRadius);
+                valueLabel(radbuf, radW);
+            }
         }
     }
 
@@ -882,57 +981,66 @@ void toolbar(App& app) {
         const std::string redoN = std::to_string(app.redoStack.size());
         const float undoW = pillWidth(undoN.c_str(), nullptr, ImGui::CalcTextSize("50").x + 18.0f);
         const float redoW = pillWidth(redoN.c_str(), nullptr, ImGui::CalcTextSize("50").x + 18.0f);
-        placePack(packW({bw, undoW, bw, redoW}));
-        if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
-            app.undo();
-        ImGui::SameLine();
-        pill("##pillundo", undoN.c_str(), kGreen, nullptr,
-             ImGui::CalcTextSize("50").x + 18.0f);
-        ImGui::SameLine();
-        if (toolBtnIcon("redo", "Rétablir (Ctrl+Maj+Z ou Ctrl+Y)", false, kGreen,
-                        app.redoStack.empty()))
-            app.redo();
-        ImGui::SameLine();
-        pill("##pillredo", redoN.c_str(), kGreen, nullptr,
-             ImGui::CalcTextSize("50").x + 18.0f);
+        if (packToggle(kPackAnnuler, "undo", "Annuler / Rétablir",
+                       "annuler, rétablir (avec compteurs)",
+                       packW({bw, undoW, bw, redoW}))) {
+            if (toolBtnIcon("undo", "Annuler (Ctrl+Z)", false, kGreen, app.undoStack.empty()))
+                app.undo();
+            ImGui::SameLine();
+            pill("##pillundo", undoN.c_str(), kGreen, nullptr,
+                 ImGui::CalcTextSize("50").x + 18.0f);
+            ImGui::SameLine();
+            if (toolBtnIcon("redo", "Rétablir (Ctrl+Maj+Z ou Ctrl+Y)", false, kGreen,
+                            app.redoStack.empty()))
+                app.redo();
+            ImGui::SameLine();
+            pill("##pillredo", redoN.c_str(), kGreen, nullptr,
+                 ImGui::CalcTextSize("50").x + 18.0f);
+        }
     }
 
     // --- Paquet Sauvegarde : scène, SVG, PNG, historique ---
     {
-        placePack(packW({bw, bw, bw, bw}));
-        if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S) — fenêtre d'emplacement",
-                        false, kGreen, false))
-            openSaveDialog(app);
-        ImGui::SameLine();
-        if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
-                        false, kGreen, false))
-            app.dlgSvgOpen = true;
-        ImGui::SameLine();
-        if (toolBtnIcon("image", "Exporter l'image de la vue actuelle en PNG "
-                                  "(édition ou prévisualisation, sans l'interface)",
-                        false, kGreen, false))
-            app.dlgPngOpen = true;
-        ImGui::SameLine();
-        if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
-                                    "(restaurer un état antérieur)",
-                        false, kGreen, app.versionFiles.empty()))
-            app.dlgVersionsOpen = true;
+        if (packToggle(kPackSauvegarde, "export", "Sauvegarde",
+                       "scène, SVG, PNG, historique",
+                       packW({bw, bw, bw, bw}))) {
+            if (toolBtnIcon("export", "Enregistrer la scène (Ctrl+S) — fenêtre d'emplacement",
+                            false, kGreen, false))
+                openSaveDialog(app);
+            ImGui::SameLine();
+            if (toolBtnIcon("export-svg", "Exporter le plan actif en SVG vectoriel",
+                            false, kGreen, false))
+                app.dlgSvgOpen = true;
+            ImGui::SameLine();
+            if (toolBtnIcon("image", "Exporter l'image de la vue actuelle en PNG "
+                                      "(édition ou prévisualisation, sans l'interface)",
+                            false, kGreen, false))
+                app.dlgPngOpen = true;
+            ImGui::SameLine();
+            if (toolBtnIcon("history", "Historique : versions horodatées de l'autosave "
+                                        "(restaurer un état antérieur)",
+                            false, kGreen, app.versionFiles.empty()))
+                app.dlgVersionsOpen = true;
+        }
     }
 
     // --- Paquet Entrées : meshes, JSON, OBJ ---
     {
-        placePack(packW({bw, bw, bw}));
-        if (toolBtnIcon("import-meshes", "Charger un fichier au format texte « meshes »",
-                        false, kBlue, false))
-            app.openImportDialog(0);
-        ImGui::SameLine();
-        if (toolBtnIcon("import-json", "Charger un fichier de scène JSON (ou glisser-déposer)",
-                        false, kBlue, false))
-            app.openImportDialog(1);
-        ImGui::SameLine();
-        if (toolBtnIcon("import-obj", "Charger un fichier OBJ (v/f — les faces sont triangulées)",
-                        false, kBlue, false))
-            app.openImportDialog(2);
+        if (packToggle(kPackEntrees, "import-json", "Entrées",
+                       "charger meshes, JSON, OBJ",
+                       packW({bw, bw, bw}))) {
+            if (toolBtnIcon("import-meshes", "Charger un fichier au format texte « meshes »",
+                            false, kBlue, false))
+                app.openImportDialog(0);
+            ImGui::SameLine();
+            if (toolBtnIcon("import-json", "Charger un fichier de scène JSON (ou glisser-déposer)",
+                            false, kBlue, false))
+                app.openImportDialog(1);
+            ImGui::SameLine();
+            if (toolBtnIcon("import-obj", "Charger un fichier OBJ (v/f — les faces sont triangulées)",
+                            false, kBlue, false))
+                app.openImportDialog(2);
+        }
     }
 
     // --- Paquets Plans (7) : découpés en sous-paquets compacts pour que
@@ -945,75 +1053,93 @@ void toolbar(App& app) {
         const float planPillW =
             pillWidth(planbuf, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
         // Navigation : précédent, suivant, compteur.
-        placePack(packW({bw, bw, planPillW}));
-        if (toolBtnIcon("prev-shape", "Plan précédent (i-1)", false, kGreen, !canNav))
-            app.prevPlane();
-        ImGui::SameLine();
-        if (toolBtnIcon("next-shape", "Plan suivant (i+1)", false, kGreen, !canNav))
-            app.nextPlane();
-        ImGui::SameLine();
-        pill("##pillplan", planbuf, kGreen, nullptr, ImGui::CalcTextSize("12/12").x + 18.0f);
+        if (packToggle(kPackPlansNav, "next-shape", "Plans — navigation",
+                       "plan précédent / suivant, compteur",
+                       packW({bw, bw, planPillW}))) {
+            if (toolBtnIcon("prev-shape", "Plan précédent (i-1)", false, kGreen, !canNav))
+                app.prevPlane();
+            ImGui::SameLine();
+            if (toolBtnIcon("next-shape", "Plan suivant (i+1)", false, kGreen, !canNav))
+                app.nextPlane();
+            ImGui::SameLine();
+            pill("##pillplan", planbuf, kGreen, nullptr,
+                 ImGui::CalcTextSize("12/12").x + 18.0f);
+        }
         // Édition : dupliquer, renommer.
-        placePack(packW({bw, bw}));
-        if (toolBtnIcon("duplicate-plane", "Dupliquer le plan actif (Alt+D) — copie complète "
-                                            "avec ses couleurs, insérée juste au-dessus",
-                        false, kGreen, n < 1))
-            app.duplicatePlane();
-        ImGui::SameLine();
-        if (toolBtnIcon("rename", "Renommer le plan actif (nom affiché au kiosque et au HUD)",
-                        app.dlgRenameOpen, kGreen, n < 1)) {
-            app.dlgRenameOpen = true;
-            std::snprintf(app.dlgRenameName, sizeof(app.dlgRenameName), "%s",
-                          planeLabel(app, app.scene.active).c_str());
+        if (packToggle(kPackPlansEdition, "duplicate-plane", "Plans — édition",
+                       "dupliquer, renommer",
+                       packW({bw, bw}))) {
+            if (toolBtnIcon("duplicate-plane",
+                            "Dupliquer le plan actif (Alt+D) — copie complète "
+                            "avec ses couleurs, insérée juste au-dessus",
+                            false, kGreen, n < 1))
+                app.duplicatePlane();
+            ImGui::SameLine();
+            if (toolBtnIcon("rename", "Renommer le plan actif (nom affiché au kiosque et au HUD)",
+                            app.dlgRenameOpen, kGreen, n < 1)) {
+                app.dlgRenameOpen = true;
+                std::snprintf(app.dlgRenameName, sizeof(app.dlgRenameName), "%s",
+                              planeLabel(app, app.scene.active).c_str());
+            }
         }
         // Ordre : monter, descendre.
-        placePack(packW({bw, bw}));
-        if (toolBtnIcon("move-shape-up", "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
-                        false, kGreen, app.scene.active >= n - 1))
-            app.planeUp();
-        ImGui::SameLine();
-        if (toolBtnIcon("move-shape-down", "Descendre le plan actif (Alt+Flèche bas)", false,
-                        kGreen, app.scene.active <= 0))
-            app.planeDown();
-        // Gestion : ajouter, supprimer, kiosque.
-        placePack(packW({bw, bw, bw}));
-        const bool plusClicked = toolBtnIcon(
-            "new-shape", "Ajouter un plan vide — clic gauche : avant le plan courant ; "
-                         "clic droit : après",
-            false, kGreen, false);
-        if (plusClicked) app.addPlane(false);
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) app.addPlane(true);
-        n = app.scene.count();  // rafraîchit après un ajout (états ×/K à jour)
-        canNav = n >= 2;
-        ImGui::SameLine();
-        if (toolBtnIcon("delete-shape", "Supprimer le plan actif (confirmation)", false,
-                        kRed, n <= 1))
-            app.dlgDeletePlaneOpen = true;
-        ImGui::SameLine();
-        if (toolBtnIcon("kiosk", "Kiosque : choisir le plan en couverture (Alt+K)", app.kiosk,
-                        kGreen, !canNav))
-            app.toggleKiosk();
-        // Opacité du plan actif (7.8) : popup avec curseur ; molette sur le
-        // bouton : ajuste par pas de 5 % (une seule étape annulable par salve).
-        ImGui::SameLine();
-        if (toolBtnIcon("opacity",
-                        "Opacité du plan actif — clic : régler la transparence "
-                        "(superposer les plans) · molette : ajuster vite",
-                        ImGui::IsPopupOpen("##opacmenu"), kGreen, false))
-            ImGui::OpenPopup("##opacmenu");
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && n >= 1) {
-            Mesh2D& m = app.scene.activePlane();
-            if (!app.opacUndoPushed_) {
-                app.pushUndo();
-                app.opacUndoPushed_ = true;
-            }
-            m.opacity = std::clamp(m.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
-            app.dirty = true;
-            app.setStatus("Opacité du plan actif : " +
-                          std::to_string((int)std::lround(m.opacity * 100.0f)) + " %");
+        if (packToggle(kPackPlansOrdre, "move-shape-up", "Plans — ordre",
+                       "monter / descendre",
+                       packW({bw, bw}))) {
+            if (toolBtnIcon("move-shape-up",
+                            "Monter le plan actif (Alt+Flèche haut) — il recouvre davantage",
+                            false, kGreen, app.scene.active >= n - 1))
+                app.planeUp();
+            ImGui::SameLine();
+            if (toolBtnIcon("move-shape-down", "Descendre le plan actif (Alt+Flèche bas)", false,
+                            kGreen, app.scene.active <= 0))
+                app.planeDown();
         }
+        // Gestion : ajouter, supprimer, kiosque, opacité.
+        if (packToggle(kPackPlansGestion, "new-shape", "Plans — gestion",
+                       "ajouter, supprimer, kiosque, opacité",
+                       packW({bw, bw, bw, bw}))) {
+            const bool plusClicked = toolBtnIcon(
+                "new-shape", "Ajouter un plan vide — clic gauche : avant le plan courant ; "
+                             "clic droit : après",
+                false, kGreen, false);
+            if (plusClicked) app.addPlane(false);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) app.addPlane(true);
+            n = app.scene.count();  // rafraîchit après un ajout (états ×/K à jour)
+            canNav = n >= 2;
+            ImGui::SameLine();
+            if (toolBtnIcon("delete-shape", "Supprimer le plan actif (confirmation)", false,
+                            kRed, n <= 1))
+                app.dlgDeletePlaneOpen = true;
+            ImGui::SameLine();
+            if (toolBtnIcon("kiosk", "Kiosque : choisir le plan en couverture (Alt+K)", app.kiosk,
+                            kGreen, !canNav))
+                app.toggleKiosk();
+            // Opacité du plan actif (7.8) : popup avec curseur ; molette sur le
+            // bouton : ajuste par pas de 5 % (une seule étape annulable par salve).
+            ImGui::SameLine();
+            if (toolBtnIcon("opacity",
+                            "Opacité du plan actif — clic : régler la transparence "
+                            "(superposer les plans) · molette : ajuster vite",
+                            ImGui::IsPopupOpen("##opacmenu"), kGreen, false))
+                ImGui::OpenPopup("##opacmenu");
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && n >= 1) {
+                Mesh2D& m = app.scene.activePlane();
+                if (!app.opacUndoPushed_) {
+                    app.pushUndo();
+                    app.opacUndoPushed_ = true;
+                }
+                m.opacity = std::clamp(m.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
+                app.dirty = true;
+                app.setStatus("Opacité du plan actif : " +
+                              std::to_string((int)std::lround(m.opacity * 100.0f)) + " %");
+            }
+            opacityPopup(app);
+        }
+        // Réarmement de la salve de molette : hors du bloc du paquet pour que
+        // la fermeture du paquet en pleine salve ne fige pas le drapeau (deux
+        // ajustements séparés doivent rester deux étapes annulables).
         if (io.MouseWheel == 0.0f) app.opacUndoPushed_ = false;
-        opacityPopup(app);
     }
 
     // --- Paquet Scène (8.5) : saisir, pivoter, redimensionner, fond, reset ---
@@ -1025,110 +1151,118 @@ void toolbar(App& app) {
         // cohérent : OpenPopup / IsPopupOpen / BeginPopup sont dans la même
         // portée.
         ImGui::PushID("scene-pack");
-        placePack(packW({bw, bw, bw, bw, bw, bw}));
-        const bool grabActive = app.sceneTool == SceneTool::Grab;
-        if (toolBtnIcon(
-                "grab",
-                grabActive
-                    ? "Saisie de la scène armée — clic gauche + glisser : déplacer "
-                      "tous les plans ensemble · clic droit ou Échap : désarmer"
-                    : "Saisir toute la scène : clic gauche + glisser au canvas déplace "
-                      "tous les plans d'un même décalage",
-                grabActive, kGreen, false))
-            app.toggleSceneTool(SceneTool::Grab);
-        ImGui::SameLine();
-        const bool rotActive = app.sceneTool == SceneTool::Rotate;
-        if (toolBtnIcon(
-                "rotate",
-                rotActive
-                    ? "Rotation de la scène armée — clic gauche + glisser horizontal : "
-                      "pivoter tous les plans autour du point de saisie · clic droit ou "
-                      "Échap : désarmer"
-                    : "Pivoter toute la scène : clic gauche + glisser horizontal au "
-                      "canvas (autour du point de saisie)",
-                rotActive, kGreen, false))
-            app.toggleSceneTool(SceneTool::Rotate);
-        ImGui::SameLine();
-        const bool scaActive = app.sceneTool == SceneTool::Scale;
-        if (toolBtnIcon(
-                "scale",
-                scaActive
-                    ? "Mise à l'échelle de la scène armée — clic gauche + glisser "
-                      "vertical : agrandir (vers le bas) / réduire (vers le haut) "
-                      "· clic droit ou Échap : désarmer"
-                    : "Redimensionner toute la scène : clic gauche + glisser vertical "
-                      "au canvas (vers le bas = agrandir)",
-                scaActive, kGreen, false))
-            app.toggleSceneTool(SceneTool::Scale);
-        ImGui::SameLine();
-        if (toolBtnIcon("background",
-                        "Couleur du fond du canvas — clic : choisir une teinte "
-                        "(teinte en direct, molette : nuances rapides)",
-                        ImGui::IsPopupOpen("##bgmenu"), kBlue, false))
-            ImGui::OpenPopup("##bgmenu");
-        // Molette sur le bouton : éclaircit (haut) / fonce (bas) le fond.
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
-            const float k = std::pow(1.1f, io.MouseWheel);  // haut → plus clair
-            app.bgColor.r = std::clamp(app.bgColor.r * k, 0.0f, 1.0f);
-            app.bgColor.g = std::clamp(app.bgColor.g * k, 0.0f, 1.0f);
-            app.bgColor.b = std::clamp(app.bgColor.b * k, 0.0f, 1.0f);
-            app.bgColor.a = 1.0f;
-            app.setStatus("Couleur du fond : " + std::to_string((int)(app.bgColor.r * 255)) +
-                          "," + std::to_string((int)(app.bgColor.g * 255)) + "," +
-                          std::to_string((int)(app.bgColor.b * 255)));
-        }
-        ImGui::SameLine();
-        if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
-                        false, kRed, false))
-            app.dlgResetOpen = true;
-        ImGui::SameLine();
-        // Calque d'image de fond (7.7) : clic = popup (charger, opacité,
-        // manipulation au canvas). Vert = outil de manipulation armé, ambre =
-        // calque chargé mais non armé.
-        const bool layerArmed = app.layerArmed;
-        const bool layerLoaded = app.imageTex != 0;
-        if (toolBtnIcon("layer",
-                        layerArmed
-                            ? "Manipulation du calque armée — voir l'outil choisi dans "
-                              "le popup · clic droit ou Échap au canvas : désarmer"
-                            : "Image de fond (calque) : clic pour charger une image, "
-                              "régler son opacité (0 à 100 %), ou la manipuler au canvas "
-                              "(7.7) · molette : ajuster l'opacité vite",
-                        layerArmed, layerLoaded ? kAmber : kGreen, false))
-            ImGui::OpenPopup("##layermenu");
-        // Molette sur le bouton : opacité du calque par pas de 5 % (une seule
-        // étape annulable par salve, comme le bouton « Opacité » des plans).
-        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && layerLoaded) {
-            ImageLayer& il = app.scene.image;
-            if (!app.layerOpacUndoPushed_) {
-                app.pushUndo();
-                app.layerOpacUndoPushed_ = true;
+        if (packToggle(kPackScene, "grab", "Scène",
+                       "saisir, pivoter, redimensionner, fond, reset, calque",
+                       packW({bw, bw, bw, bw, bw, bw}))) {
+            const bool grabActive = app.sceneTool == SceneTool::Grab;
+            if (toolBtnIcon(
+                    "grab",
+                    grabActive
+                        ? "Saisie de la scène armée — clic gauche + glisser : déplacer "
+                          "tous les plans ensemble · clic droit ou Échap : désarmer"
+                        : "Saisir toute la scène : clic gauche + glisser au canvas déplace "
+                          "tous les plans d'un même décalage",
+                    grabActive, kGreen, false))
+                app.toggleSceneTool(SceneTool::Grab);
+            ImGui::SameLine();
+            const bool rotActive = app.sceneTool == SceneTool::Rotate;
+            if (toolBtnIcon(
+                    "rotate",
+                    rotActive
+                        ? "Rotation de la scène armée — clic gauche + glisser horizontal : "
+                          "pivoter tous les plans autour du point de saisie · clic droit ou "
+                          "Échap : désarmer"
+                        : "Pivoter toute la scène : clic gauche + glisser horizontal au "
+                          "canvas (autour du point de saisie)",
+                    rotActive, kGreen, false))
+                app.toggleSceneTool(SceneTool::Rotate);
+            ImGui::SameLine();
+            const bool scaActive = app.sceneTool == SceneTool::Scale;
+            if (toolBtnIcon(
+                    "scale",
+                    scaActive
+                        ? "Mise à l'échelle de la scène armée — clic gauche + glisser "
+                          "vertical : agrandir (vers le bas) / réduire (vers le haut) "
+                          "· clic droit ou Échap : désarmer"
+                        : "Redimensionner toute la scène : clic gauche + glisser vertical "
+                          "au canvas (vers le bas = agrandir)",
+                    scaActive, kGreen, false))
+                app.toggleSceneTool(SceneTool::Scale);
+            ImGui::SameLine();
+            if (toolBtnIcon("background",
+                            "Couleur du fond du canvas — clic : choisir une teinte "
+                            "(teinte en direct, molette : nuances rapides)",
+                            ImGui::IsPopupOpen("##bgmenu"), kBlue, false))
+                ImGui::OpenPopup("##bgmenu");
+            // Molette sur le bouton : éclaircit (haut) / fonce (bas) le fond.
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+                const float k = std::pow(1.1f, io.MouseWheel);  // haut → plus clair
+                app.bgColor.r = std::clamp(app.bgColor.r * k, 0.0f, 1.0f);
+                app.bgColor.g = std::clamp(app.bgColor.g * k, 0.0f, 1.0f);
+                app.bgColor.b = std::clamp(app.bgColor.b * k, 0.0f, 1.0f);
+                app.bgColor.a = 1.0f;
+                app.setStatus("Couleur du fond : " + std::to_string((int)(app.bgColor.r * 255)) +
+                              "," + std::to_string((int)(app.bgColor.g * 255)) + "," +
+                              std::to_string((int)(app.bgColor.b * 255)));
             }
-            il.opacity = std::clamp(il.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
-            app.dirty = true;
-            app.setStatus("Opacité du calque : " +
-                          std::to_string((int)std::lround(il.opacity * 100.0f)) + " %");
+            ImGui::SameLine();
+            if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
+                            false, kRed, false))
+                app.dlgResetOpen = true;
+            ImGui::SameLine();
+            // Calque d'image de fond (7.7) : clic = popup (charger, opacité,
+            // manipulation au canvas). Vert = outil de manipulation armé, ambre =
+            // calque chargé mais non armé.
+            const bool layerArmed = app.layerArmed;
+            const bool layerLoaded = app.imageTex != 0;
+            if (toolBtnIcon("layer",
+                            layerArmed
+                                ? "Manipulation du calque armée — voir l'outil choisi dans "
+                                  "le popup · clic droit ou Échap au canvas : désarmer"
+                                : "Image de fond (calque) : clic pour charger une image, "
+                                  "régler son opacité (0 à 100 %), ou la manipuler au canvas "
+                                  "(7.7) · molette : ajuster l'opacité vite",
+                            layerArmed, layerLoaded ? kAmber : kGreen, false))
+                ImGui::OpenPopup("##layermenu");
+            // Molette sur le bouton : opacité du calque par pas de 5 % (une seule
+            // étape annulable par salve, comme le bouton « Opacité » des plans).
+            if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && layerLoaded) {
+                ImageLayer& il = app.scene.image;
+                if (!app.layerOpacUndoPushed_) {
+                    app.pushUndo();
+                    app.layerOpacUndoPushed_ = true;
+                }
+                il.opacity = std::clamp(il.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
+                app.dirty = true;
+                app.setStatus("Opacité du calque : " +
+                              std::to_string((int)std::lround(il.opacity * 100.0f)) + " %");
+            }
+            layerPopup(app);
+            bgColorPopup(app);
         }
+        // Réarmement de la salve de molette (opacité du calque) : hors du bloc
+        // du paquet pour la même raison que l'opacité des plans.
         if (io.MouseWheel == 0.0f) app.layerOpacUndoPushed_ = false;
-        layerPopup(app);
-        bgColorPopup(app);
         ImGui::PopID();
     }
 
     // --- Paquet Interface : console, aide, réglages ---
     {
-        placePack(packW({bw, bw, bw}));
-        if (toolBtnIcon("console", "Afficher / masquer la console de messages",
-                        app.consoleVisible, kGreen, false))
-            app.consoleVisible = !app.consoleVisible;
-        ImGui::SameLine();
-        if (toolBtnIcon("help", "Fenêtre d'aide et raccourcis (?)", app.dlgHelpOpen, kGreen,
-                        false))
-            app.dlgHelpOpen = !app.dlgHelpOpen;
-        ImGui::SameLine();
-        if (toolBtnIcon("settings", "Réglages : distances de détection des sommets et des segments",
-                        app.settingsOpen, kGreen, false))
-            app.settingsOpen = !app.settingsOpen;
+        if (packToggle(kPackInterface, "settings", "Interface",
+                       "console, aide, réglages",
+                       packW({bw, bw, bw}))) {
+            if (toolBtnIcon("console", "Afficher / masquer la console de messages",
+                            app.consoleVisible, kGreen, false))
+                app.consoleVisible = !app.consoleVisible;
+            ImGui::SameLine();
+            if (toolBtnIcon("help", "Fenêtre d'aide et raccourcis (?)", app.dlgHelpOpen, kGreen,
+                            false))
+                app.dlgHelpOpen = !app.dlgHelpOpen;
+            ImGui::SameLine();
+            if (toolBtnIcon("settings", "Réglages : distances de détection des sommets et des segments",
+                            app.settingsOpen, kGreen, false))
+                app.settingsOpen = !app.settingsOpen;
+        }
     }
 
     ImGui::End();

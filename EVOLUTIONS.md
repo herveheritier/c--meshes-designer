@@ -24,9 +24,17 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] améliorer gestion de la boite à outils ; les paquets de boutons doivent pouvoir être ouverts ou fermés chaque paquet est générer par un bouton dédié
-
 ## Effectuées
+
+- 2026-08-12 (à venir) - Barre d'outils repliable par paquet : chaque paquet
+  de boutons possède un bouton dédié qui l'ouvre ou le ferme — le bouton porte
+  un **symbole SVG identifiant le sujet du paquet** (grille, œil, cible,
+  étoile, engrenage… — réutilisation des icônes des boutons) suivi d'un petit
+  chevron d'état (▼ ouvert / ► fermé) ; fermé, seul le bouton reste (le paquet
+  se rouvre d'un clic) et les boutons masqués libèrent de la place (la barre
+  continue de se replier sur la largeur de la fenêtre). L'état ouvert/fermé de
+  chaque paquet est mémorisé entre les sessions (prefs.json, champ
+  « toolbarPacks », tous ouverts par défaut). Statuts et infobulles mis à jour.
 
 - 2026-08-12 (9a0588c) - Enchaînement des découpes en une étape annulable :
   l'outil Découpe reste armé après chaque découpe — on peut tracer et
