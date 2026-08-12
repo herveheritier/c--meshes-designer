@@ -33,6 +33,11 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   axe X (largeur), haut/bas = axe Y (hauteur), coins = les deux axes ; la
   saisie d'une poignée redimensionne en gardant fixe l'arête / le coin opposé
   (rotation conservée), les gestes libres restant disponibles.
+- **Calque mémorisé** (a92d849) — la position, la rotation et l'échelle du
+  calque d'image sont persistées dans prefs.json et rappelées au démarrage ;
+  la synchronisation de la texture en drawScene réapplique la transformée
+  restaurée (au lieu de la réinitialiser), et la scène de démonstration
+  affiche le calque mémorisé.
 - **Transparence du calque d'image** (151b672) — le bouton Calque gagne la
   molette pour ajuster l'opacité par pas de 5 % (une étape annulable par
   salve), et le curseur du popup est exprimé de 0 à 100 % avec un incrément
