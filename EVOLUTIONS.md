@@ -23,14 +23,20 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] opacité par plan : régler la transparence de chaque plan indépendamment
-  (les faces ont déjà leur propre opacité), pour superposer des plans en les
-  laissant visibles les uns à travers les autres.
 - [ ] ajouter un réticule supplémentaire composé de la projection symétrique des axes 
 - [ ] pouvoir récupérer une couleur avec une pipette (si possible partout sur l'écran même hors fenêtre)
 
 ## Effectuées
 
+- 2026-08-12 · `<commit>` — Opacité par plan (7.8) : chaque plan a sa propre
+  transparence, indépendante de celle des faces — le bouton « Opacité » du
+  groupe Plans ouvre un curseur pour le plan actif, la molette sur le bouton
+  ajuste par pas de 5 % (une salve = une étape annulable). L'opacité multiplie
+  le remplissage des faces (rendu d'édition et prévisualisation « tous les
+  plans ») ; arêtes et points restent affichés, même à 0 % (plan « fantôme »).
+  Conservée dans le JSON de scène (champ « opacity » émis seulement si ≠ 1,
+  compatibilité ascendante), annulable. Icône opacity.svg, aide mise à jour,
+  tests meshtest (round-trip + opacité absente = 1.0).
 - 2026-08-12 · `64e93f8` — Sélection au lasso (5.10) : bouton « Lasso » du paquet
   Sélection — tracer librement un contour au canvas (polygone affiché en
   direct, échantillonné tous les ~6 px écran) puis sélectionner d'un coup les

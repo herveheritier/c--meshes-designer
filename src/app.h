@@ -108,6 +108,9 @@ public:
     std::vector<Vec2> lassoPts;  // tracé en cours (coordonnées écran, échantillonné)
     void toggleLasso();          // arme / désarme la sélection au lasso
     void applyLassoSelection();  // sélectionne les éléments dans le polygone
+    // 7.8 : une seule étape annulable par salve de molette sur le bouton
+    // « Opacité du plan actif » (réarmée quand la molette s'arrête).
+    bool opacUndoPushed_ = false;
     // Sélectionne les éléments du plan actif dont le point de référence
     // (sommet : position, segment : milieu, triangle : centre) satisfait
     // `inside` — partagé entre rectangle (5.1) et lasso (5.10).

@@ -490,6 +490,22 @@ retrait) est **annulable** (une étape par geste). L'image apparaît aussi dans
 l'export PNG de la vue, puisqu'elle fait partie du rendu de la scène. Un
 fichier de scène sans calque charge sans image (compatibilité ascendante).
 
+### 7.8 Opacité par plan
+
+Chaque plan a sa propre **transparence** (0–100 %), indépendante de l'opacité
+des faces : le bouton **Opacité** du groupe Plans ouvre un curseur pour le
+**plan actif**, et la **molette** sur le bouton ajuste par pas de 5 % (une
+salve = une étape annulable).
+
+- L'opacité multiplie le **remplissage des faces** — utile pour superposer des
+  plans en les laissant visibles les uns à travers les autres ;
+- les **arêtes et les points restent affichés**, même à 0 % (le plan devient un
+  « fantôme » que l'on peut suivre sans qu'il masque rien) ;
+- elle s'applique au rendu d'édition comme à la prévisualisation « tous les
+  plans » ;
+- elle est **enregistrée avec la scène** (JSON) et **annulable** (curseur : une
+  étape par manipulation). Un fichier ancien sans opacité charge 100 %.
+
 ---
 
 ## 8. Navigation de la vue

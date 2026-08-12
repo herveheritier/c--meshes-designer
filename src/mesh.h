@@ -56,6 +56,10 @@ public:
     std::vector<Face> faces;
     // Nom du plan (spec 2.2 : facultatif, défaut « Plan n » affiché à l'écran).
     std::string name;
+    // Opacité du plan (7.8) : 0..1, multipliée au remplissage des faces pour
+    // superposer les plans en les laissant visibles les uns à travers les
+    // autres (arêtes et points restent affichés). Conservée dans le JSON.
+    float opacity = 1.0f;
 
     void clear();
     bool empty() const;

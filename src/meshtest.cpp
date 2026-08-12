@@ -560,12 +560,14 @@ static void testSpecFormats() {
         CHECK(!back.grid && back.gridStep == 0.5f);
         CHECK(back.name == "essai");
     }
-    // JSON multi-plans : ordre d'empilement et plan actif conservés
+    // JSON multi-plans : ordre d'empilement, plan actif et opacité par plan
+    // (7.8) conservés ; opacité absente = 1.0 (compatibilité ascendante).
     {
         SceneSnapshot snap;
         Mesh2D& p1 = snap.scene.activePlane();
         p1.addVertex({0, 0});
         p1.addVertex({1, 1});
+        p1.opacity = 0.35f;
         snap.scene.planes.emplace_back();
         Mesh2D& p2 = snap.scene.planes[1];
         p2.addVertex({5, 5});
@@ -578,6 +580,16 @@ static void testSpecFormats() {
         CHECK(back.scene.active == 1);
         CHECK((int)back.scene.planes[1].vertices.size() == 2);
         CHECK(back.scene.planes[1].vertices[1].x == 6.0f);
+        CHECK(back.scene.planes[0].opacity == 0.35f);
+        CHECK(back.scene.planes[1].opacity == 1.0f);
+        // Fichier ancien (sans « opacity ») : chaque plan charge à 1.0.
+        CHECK(writeTestFile(
+                  "/tmp/meshtest_planes_legacy.json",
+                  "{\"mesh\":{\"verts\":[[0,0],[1,1]],\"faces\":[],\"opacity\":0.7}}")
+                  .ok);
+        SceneSnapshot leg;
+        CHECK(loadSceneJson(leg, "/tmp/meshtest_planes_legacy").ok);
+        CHECK(leg.scene.planes[0].opacity == 0.7f);
         // Ancien format « mesh » (repli) : toujours lisible
         CHECK(writeTestFile("/tmp/meshtest_legacy.json",
                             "{\"app\":\"meshes-designer\",\"mesh\":{\"verts\":[[0,0],[1,1]],\"faces\":[]}}")
@@ -803,7 +815,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 73);  // toutes les icônes du dossier assets/ (1 ajoutée : lasso)
+    CHECK(n == 74);  // toutes les icônes du dossier assets/ (1 ajoutée : opacité)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux

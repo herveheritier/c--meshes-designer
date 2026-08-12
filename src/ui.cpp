@@ -259,6 +259,7 @@ void shapesMenu(App& app);
 void bgColorPopup(App& app);
 void layerPopup(App& app);
 void layerLoadDialog(App& app);
+void opacityPopup(App& app);
 
 // ---------------------------------------------------------------------------
 // Raccourcis (spec ch. 15)
@@ -966,6 +967,27 @@ void toolbar(App& app) {
         if (toolBtnIcon("kiosk", "Kiosque : choisir le plan en couverture (Alt+K)", app.kiosk,
                         kGreen, !canNav))
             app.toggleKiosk();
+        // Opacité du plan actif (7.8) : popup avec curseur ; molette sur le
+        // bouton : ajuste par pas de 5 % (une seule étape annulable par salve).
+        ImGui::SameLine();
+        if (toolBtnIcon("opacity",
+                        "Opacité du plan actif — clic : régler la transparence "
+                        "(superposer les plans) · molette : ajuster vite",
+                        ImGui::IsPopupOpen("##opacmenu"), kGreen, false))
+            ImGui::OpenPopup("##opacmenu");
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f && n >= 1) {
+            Mesh2D& m = app.scene.activePlane();
+            if (!app.opacUndoPushed_) {
+                app.pushUndo();
+                app.opacUndoPushed_ = true;
+            }
+            m.opacity = std::clamp(m.opacity + 0.05f * io.MouseWheel, 0.0f, 1.0f);
+            app.dirty = true;
+            app.setStatus("Opacité du plan actif : " +
+                          std::to_string((int)std::lround(m.opacity * 100.0f)) + " %");
+        }
+        if (io.MouseWheel == 0.0f) app.opacUndoPushed_ = false;
+        opacityPopup(app);
     }
 
     // --- Paquet Scène (8.5) : saisir, pivoter, redimensionner, fond, reset ---
@@ -1651,6 +1673,38 @@ void layerLoadDialog(App& app) {
     }
 }
 
+// Opacité du plan actif (7.8) : curseur de transparence (une étape annulable
+// par manipulation complète) et rappel du comportement (arêtes conservées).
+void opacityPopup(App& app) {
+    if (!ImGui::BeginPopup("##opacmenu")) return;
+    if (app.scene.count() < 1) {
+        ImGui::EndPopup();
+        return;
+    }
+    Mesh2D& m = app.scene.activePlane();
+    ImGui::TextDisabled("Opacité du plan actif :");
+    ImGui::SetNextItemWidth(190.0f);
+    if (ImGui::SliderFloat("##opac", &m.opacity, 0.0f, 1.0f, "%.2f")) {
+        if (ImGui::IsItemActivated()) app.pushUndo();
+        app.dirty = true;
+        app.setStatus("Opacité du plan actif : " +
+                      std::to_string((int)std::lround(m.opacity * 100.0f)) + " %");
+    }
+    ImGui::TextDisabled("%d %% — arêtes et points restent affichés.",
+                        (int)std::lround(m.opacity * 100.0f));
+    if (m.opacity < 1.0f) {
+        ImGui::Separator();
+        if (toolBtnIcon("reset", "Revenir à 100 % d'opacité", false, kGreen, false,
+                        "Rétablir (100 %)", 130.0f)) {
+            app.pushUndo();
+            m.opacity = 1.0f;
+            app.dirty = true;
+            app.setStatus("Opacité du plan actif : 100 %");
+        }
+    }
+    ImGui::EndPopup();
+}
+
 void alignPanel(App& app) {
     if (!app.alignOpen) return;
     ImGui::SetNextWindowPos(ImVec2(12, 96), ImGuiCond_FirstUseEver);
@@ -1883,6 +1937,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("? : cette aide · Échap : quitter le mode en cours");
         ImGui::BulletText("Alt+← / Alt+→ : aligner X / Y · Alt+Maj+←/→ : répartir X / Y");
         ImGui::BulletText("Alt+↑ / Alt+↓ : monter / descendre le plan actif (empilement)");
+        ImGui::BulletText("Bouton Opacité (groupe plans) : transparence du plan actif — curseur dans le popup, ou molette sur le bouton (pas de 5 %%) — les arêtes restent affichées pour superposer les plans");
         ImGui::BulletText("] / [ : face(s) sélectionnée(s) vers l'avant / l'arrière — ordre z dans le plan (boutons de la barre d'outils)");
         ImGui::BulletText("Alt+K : kiosque de sélection des plans (au moins 2 plans — flèches ←/→ pour naviguer)");
         ImGui::Separator();

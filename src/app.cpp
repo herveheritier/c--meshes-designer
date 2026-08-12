@@ -786,7 +786,9 @@ void App::drawPreviewGeometry() {
             std::vector<Vec2> triPts;
             triPts.reserve(local.size());
             for (int idx : local) triPts.push_back(pts[idx]);
-            renderer.drawTriangles(triPts, f.hasColor ? f.color : kFaceFill);
+            Color c = f.hasColor ? f.color : kFaceFill;
+            c.a *= p.opacity;  // opacité du plan (7.8)
+            renderer.drawTriangles(triPts, c);
         }
         std::vector<Vec2> segs;
         const auto es = p.edges();
@@ -3618,6 +3620,7 @@ void App::drawPlane(const Mesh2D& p, bool isActive) {
             for (int idx : local) triPts.push_back(pts[idx]);
             Color base = f.hasColor ? f.color : kFaceFill;
             if (!isActive) base.a *= 0.75f;  // plans inactifs : remplis mais atténués
+            base.a *= p.opacity;  // opacité du plan (7.8)
             renderer.drawTriangles(triPts, base);
         }
     }

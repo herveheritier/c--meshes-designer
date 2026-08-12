@@ -223,6 +223,9 @@ JVal meshToJson(const Mesh2D& m) {
     // Nom du plan (facultatif) : émis seulement s'il est défini, pour que les
     // fichiers existants restent identiques (repli « Plan n » à la lecture).
     if (!m.name.empty()) v.obj.emplace_back("name", JVal::str(m.name));
+    // Opacité du plan (7.8) : émise seulement si ≠ 1, pour que les fichiers
+    // existants restent identiques (défaut 1.0 à la lecture).
+    if (m.opacity != 1.0f) v.obj.emplace_back("opacity", JVal::num(m.opacity));
     JVal verts = JVal::array();
     for (const Vec2& pt : m.vertices) {
         JVal p = JVal::array();
@@ -253,6 +256,9 @@ JVal meshToJson(const Mesh2D& m) {
 
 bool meshFromJson(const JVal& v, Mesh2D& out, std::string& err) {
     v.getStr("name", out.name);  // nom du plan (absent dans les anciens fichiers)
+    double op = 0.0;
+    if (v.getNum("opacity", op))  // opacité du plan (7.8, absente = 1.0)
+        out.opacity = std::clamp((float)op, 0.0f, 1.0f);
     const JVal* jv = v.find("verts");
     if (!jv || jv->t != JVal::T::Arr) {
         err = "JSON invalide : « verts » manquant ou mal formé";
