@@ -27,7 +27,7 @@ Aucune évolution en attente — la liste est vide. 🎉
 
 ## Effectuées
 
-- 2026-08-12 · `<commit>` — Pipette de couleur (6.5) : bouton « Pipette » du
+- 2026-08-12 · `2e006b2` — Pipette de couleur (6.5) : bouton « Pipette » du
   paquet Outils — armé, le curseur devient une petite cible et un clic gauche
   sur le canvas prélève la couleur réellement affichée (faces peintes, calque
   d'image, couleur du fond…) puis la pose comme couleur du pinceau (valeurs
