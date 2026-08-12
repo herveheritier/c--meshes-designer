@@ -300,6 +300,52 @@ bool meshFromJson(const JVal& v, Mesh2D& out, std::string& err) {
     return true;
 }
 
+// Calque d'image (7.7) : sérialisation de l'état du calque (l'image décodée
+// elle-même reste un fichier externe, seul son chemin est enregistré).
+static JVal imageLayerToJson(const ImageLayer& il) {
+    JVal v = JVal::object();
+    v.obj.emplace_back("path", JVal::str(il.path));
+    v.obj.emplace_back("visible", JVal::boolean(il.visible));
+    v.obj.emplace_back("cx", JVal::num(il.center.x));
+    v.obj.emplace_back("cy", JVal::num(il.center.y));
+    v.obj.emplace_back("rotation", JVal::num(il.rotation));
+    v.obj.emplace_back("scaleX", JVal::num(il.scaleX));
+    v.obj.emplace_back("scaleY", JVal::num(il.scaleY));
+    v.obj.emplace_back("opacity", JVal::num(il.opacity));
+    v.obj.emplace_back("w", JVal::num(il.w));
+    v.obj.emplace_back("h", JVal::num(il.h));
+    return v;
+}
+
+static void imageLayerFromJson(const JVal& v, ImageLayer& il) {
+    v.getStr("path", il.path);
+    bool vis = true;
+    v.getBool("visible", vis);
+    il.visible = vis;
+    double d = 0.0;
+    if (v.getNum("cx", d)) il.center.x = (float)d;
+    if (v.getNum("cy", d)) il.center.y = (float)d;
+    if (v.getNum("rotation", d)) il.rotation = (float)d;
+    if (v.getNum("scaleX", d)) il.scaleX = (float)d;
+    if (v.getNum("scaleY", d)) il.scaleY = (float)d;
+    if (v.getNum("opacity", d)) il.opacity = (float)d;
+    if (v.getNum("w", d)) il.w = (int)d;
+    if (v.getNum("h", d)) il.h = (int)d;
+}
+
+// Ajoute l'objet « image » à la scène sérialisée, si un calque est présent.
+static void imageToSceneJson(JVal& v, const Scene& scene) {
+    if (scene.image.path.empty()) return;
+    v.obj.emplace_back("image", imageLayerToJson(scene.image));
+}
+
+// Lit l'objet « image » éventuel (compatibilité ascendante : absent = aucun
+// calque, l'état par défaut de ImageLayer est conservé).
+static void imageFromSceneJson(const JVal& v, Scene& scene) {
+    const JVal* img = v.find("image");
+    if (img && img->t == JVal::T::Obj) imageLayerFromJson(*img, scene.image);
+}
+
 JVal sceneToJson(const SceneSnapshot& s) {
     JVal v = JVal::object();
     v.obj.emplace_back("app", JVal::str("meshes-designer"));
@@ -313,6 +359,7 @@ JVal sceneToJson(const SceneSnapshot& s) {
     JVal planes = JVal::array();
     for (const Mesh2D& m : s.scene.planes) planes.arr.push_back(meshToJson(m));
     v.obj.emplace_back("planes", planes);
+    imageToSceneJson(v, s.scene);
     return v;
 }
 
@@ -323,6 +370,8 @@ JVal sceneGeomToJson(const Scene& s) {
     JVal planes = JVal::array();
     for (const Mesh2D& m : s.planes) planes.arr.push_back(meshToJson(m));
     v.obj.emplace_back("planes", planes);
+    // L'état du calque (7.7) accompagne les scènes d'historique (autosave).
+    imageToSceneJson(v, s);
     return v;
 }
 
@@ -344,6 +393,7 @@ bool sceneGeomFromJson(const JVal& v, Scene& out, std::string& err) {
         return false;
     }
     out.active = std::clamp(out.active, 0, (int)out.planes.size() - 1);
+    imageFromSceneJson(v, out);
     return true;
 }
 
@@ -378,6 +428,7 @@ bool sceneFromJson(const JVal& v, SceneSnapshot& out, std::string& err) {
         return false;
     }
     out.scene.active = std::clamp(out.scene.active, 0, (int)out.scene.planes.size() - 1);
+    imageFromSceneJson(v, out.scene);
     return true;
 }
 

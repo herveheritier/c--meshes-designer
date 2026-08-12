@@ -14,6 +14,9 @@
 #ifndef GL_LINES
 #define GL_LINES 0x0001
 #endif
+#ifndef GL_TRIANGLE_STRIP
+#define GL_TRIANGLE_STRIP 0x0005
+#endif
 #ifndef GL_PROGRAM_POINT_SIZE
 #define GL_PROGRAM_POINT_SIZE 0x8642
 #endif
@@ -93,6 +96,49 @@ std::string fragmentShaderSource() {
            "void main() { fragColor = uColor; }\n";
 }
 
+// Shaders du programme texturé (calque d'image, 7.7) : position + coordonnée
+// de texture ; couleur = échantillon de la texture × teinte (opacité).
+std::string vertexShaderTexSource() {
+    return "#version " + glslVersion() +
+           "\n"
+           "in vec2 aPos;\n"
+           "in vec2 aUV;\n"
+           "uniform mat4 uProj;\n"
+           "out vec2 vUV;\n"
+           "void main() {\n"
+           "    gl_Position = uProj * vec4(aPos, 0.0, 1.0);\n"
+           "    vUV = aUV;\n"
+           "}\n";
+}
+
+std::string fragmentShaderTexSource() {
+    return "#version " + glslVersion() +
+           "\n"
+           "uniform sampler2D uTex;\n"
+           "uniform vec4 uTint;\n"
+           "in vec2 vUV;\n"
+           "out vec4 fragColor;\n"
+           "void main() { fragColor = texture(uTex, vUV) * uTint; }\n";
+}
+
+// Compile un shader et renvoie l'objet (0 en cas d'échec, avec le log).
+GLuint compileShader(GLenum type, const std::string& src) {
+    const char* c = src.c_str();
+    GLuint sh = glCreateShader(type);
+    glShaderSource(sh, 1, &c, nullptr);
+    glCompileShader(sh);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetShaderInfoLog(sh, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "Erreur de shader : %s\n", log);
+        glDeleteShader(sh);
+        return 0;
+    }
+    return sh;
+}
+
 }  // namespace
 
 bool Renderer::init() {
@@ -103,6 +149,7 @@ bool Renderer::init() {
 
     if (!loadExtras()) return false;
     if (!compileProgram()) return false;
+    if (!compileTexProgram()) return false;
 
     glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);
@@ -111,6 +158,18 @@ bool Renderer::init() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, (GLsizei)(2 * sizeof(float)), (void*)0);
     glBindVertexArray(0);
+
+    // VAO texturé : position + UV entrelacés (calque d'image, 7.7).
+    glGenVertexArrays(1, &vaoTex_);
+    glGenBuffers(1, &vboTex_);
+    glBindVertexArray(vaoTex_);
+    glBindBuffer(GL_ARRAY_BUFFER, vboTex_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, (GLsizei)(4 * sizeof(float)), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, (GLsizei)(4 * sizeof(float)),
+                         (void*)(2 * sizeof(float)));
+    glBindVertexArray(0);
     return true;
 }
 
@@ -118,29 +177,16 @@ void Renderer::shutdown() {
     if (prog_) glDeleteProgram(prog_);
     if (vao_) glDeleteVertexArrays(1, &vao_);
     if (vbo_) glDeleteBuffers(1, &vbo_);
+    if (progTex_) glDeleteProgram(progTex_);
+    if (vaoTex_) glDeleteVertexArrays(1, &vaoTex_);
+    if (vboTex_) glDeleteBuffers(1, &vboTex_);
     prog_ = vao_ = vbo_ = 0;
+    progTex_ = vaoTex_ = vboTex_ = 0;
 }
 
 bool Renderer::compileProgram() {
-    auto compile = [](GLenum type, const std::string& src) -> GLuint {
-        const char* c = src.c_str();
-        GLuint sh = glCreateShader(type);
-        glShaderSource(sh, 1, &c, nullptr);
-        glCompileShader(sh);
-        GLint ok = GL_FALSE;
-        glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
-        if (!ok) {
-            char log[1024];
-            glGetShaderInfoLog(sh, sizeof(log), nullptr, log);
-            std::fprintf(stderr, "Erreur de shader : %s\n", log);
-            glDeleteShader(sh);
-            return 0;
-        }
-        return sh;
-    };
-
-    GLuint vs = compile(GL_VERTEX_SHADER, vertexShaderSource());
-    GLuint fs = compile(GL_FRAGMENT_SHADER, fragmentShaderSource());
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSource());
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource());
     if (!vs || !fs) return false;
 
     prog_ = glCreateProgram();
@@ -162,6 +208,34 @@ bool Renderer::compileProgram() {
     locProj_ = glGetUniformLocation(prog_, "uProj");
     locColor_ = glGetUniformLocation(prog_, "uColor");
     locPointSize_ = glGetUniformLocation(prog_, "uPointSize");
+    return true;
+}
+
+bool Renderer::compileTexProgram() {
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderTexSource());
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderTexSource());
+    if (!vs || !fs) return false;
+
+    progTex_ = glCreateProgram();
+    glAttachShader(progTex_, vs);
+    glAttachShader(progTex_, fs);
+    pfnBindAttribLocation(progTex_, 0, "aPos");
+    pfnBindAttribLocation(progTex_, 1, "aUV");
+    glLinkProgram(progTex_);
+    GLint ok = GL_FALSE;
+    glGetProgramiv(progTex_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(progTex_, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "Erreur de link (texturé) : %s\n", log);
+        return false;
+    }
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    locProjTex_ = glGetUniformLocation(progTex_, "uProj");
+    locTintTex_ = glGetUniformLocation(progTex_, "uTint");
+    locSamplerTex_ = glGetUniformLocation(progTex_, "uTex");
     return true;
 }
 
@@ -241,6 +315,56 @@ void Renderer::drawPoints(const std::vector<Vec2>& pts, float sizePx, const Colo
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(pts.size() * sizeof(Vec2)), pts.data(),
                  GL_DYNAMIC_DRAW);
     pfnDrawArrays(GL_POINTS, 0, (GLsizei)pts.size());
+}
+
+unsigned Renderer::createTexture(int w, int h, const unsigned char* rgba) {
+    if (w <= 0 || h <= 0 || !rgba) return 0;
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return tex;
+}
+
+void Renderer::destroyTexture(unsigned tex) {
+    if (tex) glDeleteTextures(1, &tex);
+}
+
+void Renderer::drawTexturedQuad(unsigned tex, const Vec2& p0, const Vec2& p1, const Vec2& p2,
+                                const Vec2& p3, const Color& tint) {
+    if (!tex || !progTex_) return;
+    // Sommets entrelacés (position, UV) : (0,0)→(1,0)→(1,1)→(0,1) dans l'ordre
+    // trigonométrique p0→p1→p2→p3. Ligne 0 de la texture = bas (flip au
+    // chargement), donc v=1 = haut de l'image.
+    struct V {
+        float x, y, u, v;
+    };
+    const V verts[4] = {
+        {p0.x, p0.y, 0.0f, 0.0f}, {p1.x, p1.y, 1.0f, 0.0f},
+        {p2.x, p2.y, 1.0f, 1.0f}, {p3.x, p3.y, 0.0f, 1.0f}};
+    glUseProgram(progTex_);
+    glBindVertexArray(vaoTex_);
+    glBindBuffer(GL_ARRAY_BUFFER, vboTex_);
+    glUniformMatrix4fv(locProjTex_, 1, GL_FALSE, proj_);
+    // Ré-applique le viewport de la scène (main.cpp le remet plein écran
+    // avant chaque frame) comme dans setupState().
+    glViewport(vx_, vy_, vw_, vh_);
+    glEnable(GL_BLEND);
+    pfnBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    pfnUniform4f(locTintTex_, tint.r, tint.g, tint.b, tint.a);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(locSamplerTex_, 0);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
+    pfnDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 std::vector<unsigned char> Renderer::readPixelsRGBA() const {

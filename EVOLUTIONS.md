@@ -30,11 +30,20 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   (les faces ont déjà leur propre opacité), pour superposer des plans en les
   laissant visibles les uns à travers les autres.
 - [ ] ajouter un réticule supplémentaire composé de la projection symétrique des axes 
-- [ ] pouvoir mettre un image en arrière plan pouvant servir de calque ; l'image doit pouvoir être réorientée, déplacée, déformée
 - [ ] pouvoir récupérer une couleur avec une pipette (si possible partout sur l'écran même hors fenêtre)
 
 ## Effectuées
 
+- 2026-08-12 · `<commit>` — Image de fond en calque (7.7) : bouton « Calque » du
+  groupe Scène — charger une image PNG/JPEG (stb_image) affichée derrière la
+  grille et les plans, opacité et visibilité réglables, manipulation à la
+  souris au canvas (déplacer, pivoter autour du centre, échelle — vertical
+  proportionnel / horizontal largeur / Maj hauteur), ajuster à la vue, retirer
+  — chaque geste annulable (l'état du calque vit dans la scène). L'image est
+  enregistrée avec la scène (JSON, chemin + transformée, compatibilité
+  ascendante) et apparaît dans l'export PNG. Rendu texturé OpenGL dédié
+  (quad + teinte), décodeur stb_image embarqué (external/stb_image.h),
+  icône layer.svg, tests meshtest (round-trip scène + autosave).
 - 2026-08-12 · `8400bc2` — Mode filaire (7.6) : le bouton d'affichage des plans fait
   désormais défiler trois modes — rendu normal, toutes couleurs, puis filaire
   (arêtes seules, sans remplissage, pour voir la structure de toute la scène à

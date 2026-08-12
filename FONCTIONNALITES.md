@@ -441,6 +441,35 @@ L'icône et l'infobulle du bouton suivent le mode courant. Ce sont des modes
 d'affichage purs : l'édition est inchangée, et le mode est conservé d'une
 session à l'autre.
 
+### 7.7 Image de fond en calque
+
+Le bouton **Calque** (groupe Scène) charge une image (PNG ou JPEG) affichée en
+arrière-plan de la scène, **derrière la grille et les plans** — utile comme
+modèle de dessin (plan, logo, photo…). L'image est **enregistrée avec la scène**
+(son chemin et sa position dans le JSON), pas seulement en préférence de
+session.
+
+Le popup du bouton permet de :
+
+- **Charger une image…** (chemin d'un fichier PNG/JPEG) — l'image apparaît
+  centrée à ~la moitié de la vue ;
+- régler l'**opacité** (curseur) et la **visibilité** ;
+- **manipuler le calque au canvas** : trois outils armables (comme le mode
+  Scène, clic droit ou Échap pour désarmer) —
+  - **Déplacer** : clic gauche + glisser ;
+  - **Pivoter** : clic gauche + glisser (le point saisi suit le curseur autour
+    du centre) ;
+  - **Échelle** : glisser vertical = taille (proportionnel), horizontal =
+    largeur (déformation), Maj+horizontal = hauteur ;
+- **Ajuster à la vue** : recentre et redimensionne le calque à ~la moitié de la
+  vue ;
+- **Retirer le calque**.
+
+Chaque manipulation (déplacement, rotation, échelle, opacité, visibilité,
+retrait) est **annulable** (une étape par geste). L'image apparaît aussi dans
+l'export PNG de la vue, puisqu'elle fait partie du rendu de la scène. Un
+fichier de scène sans calque charge sans image (compatibilité ascendante).
+
 ---
 
 ## 8. Navigation de la vue

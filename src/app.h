@@ -25,9 +25,12 @@ enum class PreviewMode { Off, Simple, Planes };
 
 // Mode « Scène » (8.5) : manipulation de TOUS les plans à la souris.
 enum class SceneTool { None, Grab, Rotate, Scale };
+// Calque d'image de fond (7.7) : manipulation de l'image à la souris.
+enum class LayerTool { None, Move, Rotate, Scale };
 
 // --- Drag en cours ---
-enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale };
+enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale,
+                      LayerMove, LayerRotate, LayerScale };
 
 struct Drag {
     DragKind kind = DragKind::None;
@@ -45,6 +48,10 @@ struct Drag {
     Vec2 sceneAnchor{0, 0};
     Vec2 sceneStartScreen{0, 0};
     float sceneStartDeg = 0.0f;
+    // Calque d'image (7.7) : état du calque au début de la saisie (pour
+    // annuler proprement et détecter un glisser sans effet).
+    Vec2 layerStartCenter{0, 0};
+    float layerStartRot = 0.0f, layerStartSx = 1.0f, layerStartSy = 1.0f;
     // Tracé de forme : 0 prêt · 1 ancre posée · 2 verrouillé (étoile/anneau)
     int shapeStage = 0;
     Vec2 shapeAnchor{0, 0};             // ancre (centre ou coin) en monde
@@ -76,6 +83,20 @@ public:
     // de rotation ; échelle ×exp(0,005/px vertical) (~×1,65 pour 100 px).
     static constexpr float kSceneDegPerPx = 0.4f;
     static constexpr float kSceneScalePerPx = 0.005f;
+
+    // --- Calque d'image de fond (7.7) ---
+    // Outil armé depuis le popup « Calque » : le canvas sert alors à déplacer /
+    // pivoter / redimensionner l'image (clic droit ou Échap désarme), comme le
+    // mode Scène pour les plans. L'état du calque (chemin, transformée,
+    // opacité) vit dans scene.image et est persisté dans le JSON de scène.
+    LayerTool layerTool = LayerTool::None;
+    // Texture GL de l'image décodée (0 = aucune) ; la synchronisation avec
+    // scene.image.path (chargement / déchargement) se fait dans drawScene.
+    unsigned imageTex = 0;
+    std::string imageLoadedPath;
+    // Dialogue « Charger une image… » (popup Calque).
+    bool dlgLayerOpen = false;
+    char dlgLayerPath[1024] = {0};
 
     // --- Sélection & outils ---
     SelMode selMode = SelMode::Vertex;
@@ -331,6 +352,20 @@ public:
     // relâchement = fin (une étape annulable, retirée si aucun déplacement).
     void beginSceneDrag(const Vec2& world, const Vec2& screen);
     void applySceneDrag(const Vec2& world, const Vec2& screen);
+
+    // --- Calque d'image (7.7) ---
+    void toggleLayerTool(LayerTool t);   // arme / désarme l'outil calque
+    bool isLayerDragging() const;        // saisie du calque en cours
+    void beginLayerDrag(const Vec2& world, const Vec2& screen);
+    void applyLayerDrag(const Vec2& world, const Vec2& screen);
+    void endLayerDrag();
+    // Charge le fichier image (PNG/JPEG) : décode, crée la texture, dimensionne
+    // le calque à ~la moitié de la vue. Échec → statut + false (calque intact).
+    bool loadImageLayer(const std::string& path);
+    // Retire le calque (une étape annulable).
+    void removeImageLayer();
+    // Réajuste la taille du calque à ~la moitié de la vue (une étape annulable).
+    void fitLayerToView();
     void endSceneDrag();
     bool isSceneDragging() const {
         return drag_.kind == DragKind::SceneGrab || drag_.kind == DragKind::SceneRotate ||

@@ -257,6 +257,8 @@ void drawPlaneCard(App& app, ImDrawList* dl, int pi, const ImVec2& tl, const ImV
 void kioskOverlay(App& app, ImDrawList* dl, const ImVec2& pos, const ImVec2& size);
 void shapesMenu(App& app);
 void bgColorPopup(App& app);
+void layerPopup(App& app);
+void layerLoadDialog(App& app);
 
 // ---------------------------------------------------------------------------
 // Raccourcis (spec ch. 15)
@@ -961,7 +963,7 @@ void toolbar(App& app) {
         // cohérent : OpenPopup / IsPopupOpen / BeginPopup sont dans la même
         // portée.
         ImGui::PushID("scene-pack");
-        placePack(packW({bw, bw, bw, bw, bw}));
+        placePack(packW({bw, bw, bw, bw, bw, bw}));
         const bool grabActive = app.sceneTool == SceneTool::Grab;
         if (toolBtnIcon(
                 "grab",
@@ -1017,6 +1019,21 @@ void toolbar(App& app) {
         if (toolBtnIcon("reset", "Réinitialiser entièrement la scène (Maj+Retour arrière)",
                         false, kRed, false))
             app.dlgResetOpen = true;
+        ImGui::SameLine();
+        // Calque d'image de fond (7.7) : clic = popup (charger, opacité,
+        // manipulation au canvas). Vert = outil de manipulation armé, ambre =
+        // calque chargé mais non armé.
+        const bool layerArmed = app.layerTool != LayerTool::None;
+        const bool layerLoaded = app.imageTex != 0;
+        if (toolBtnIcon("layer",
+                        layerArmed
+                            ? "Manipulation du calque armée — voir l'outil choisi dans "
+                              "le popup · clic droit ou Échap au canvas : désarmer"
+                            : "Image de fond (calque) : clic pour charger une image, "
+                              "régler son opacité, ou la manipuler au canvas (7.7)",
+                        layerArmed, layerLoaded ? kAmber : kGreen, false))
+            ImGui::OpenPopup("##layermenu");
+        layerPopup(app);
         bgColorPopup(app);
         ImGui::PopID();
     }
@@ -1517,6 +1534,109 @@ void bgColorPopup(App& app) {
     ImGui::EndPopup();
 }
 
+// ---------------------------------------------------------------------------
+// Calque d'image de fond (7.7) : popup du bouton « Calque » (paquet Scène) +
+// dialogue de chargement. L'état vit dans app.scene.image (persisté dans le
+// JSON de scène) ; la texture GL est synchronisée par drawScene.
+// ---------------------------------------------------------------------------
+void layerPopup(App& app) {
+    if (!ImGui::BeginPopup("##layermenu")) return;
+    const ImageLayer& il = app.scene.image;
+    if (il.path.empty()) {
+        ImGui::TextDisabled("Aucun calque d'image.");
+        if (toolBtnIcon("layer", "Charger une image (PNG/JPEG) comme fond", false, kGreen,
+                        false, "Charger une image…", 210.0f)) {
+            app.dlgLayerOpen = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::TextDisabled("L'image est enregistrée avec la scène (JSON).");
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::TextDisabled("Calque : %s", il.path.c_str());
+    ImGui::TextDisabled("%d × %d px · opacité %.0f %%", il.w, il.h, il.opacity * 100.0f);
+    ImGui::Separator();
+
+    // Manipulation au canvas : trois outils radio (un seul armé à la fois).
+    ImGui::TextDisabled("Manipulation au canvas (clic gauche + glisser) :");
+    const float bw = dialogBtnWidth({"Déplacer", "Pivoter", "Échelle", "Ajuster", "Retirer"});
+    if (toolBtnIcon("grab", "Déplacer le calque — clic gauche + glisser",
+                    app.layerTool == LayerTool::Move, kGreen, false, "Déplacer", bw))
+        app.toggleLayerTool(LayerTool::Move);
+    ImGui::SameLine();
+    if (toolBtnIcon("rotate", "Pivoter le calque — glisser autour du centre",
+                    app.layerTool == LayerTool::Rotate, kGreen, false, "Pivoter", bw))
+        app.toggleLayerTool(LayerTool::Rotate);
+    ImGui::SameLine();
+    if (toolBtnIcon("scale", "Redimensionner le calque — vertical : taille · "
+                    "horizontal : largeur · Maj+horizontal : hauteur",
+                    app.layerTool == LayerTool::Scale, kGreen, false, "Échelle", bw))
+        app.toggleLayerTool(LayerTool::Scale);
+    ImGui::Separator();
+
+    // Opacité : une étape annulable par manipulation complète du curseur.
+    ImGui::TextDisabled("Opacité :");
+    ImGui::SetNextItemWidth(210.0f);
+    if (ImGui::SliderFloat("##layerop", &app.scene.image.opacity, 0.0f, 1.0f, "%.2f")) {
+        if (ImGui::IsItemActivated()) app.pushUndo();
+        app.dirty = true;
+    }
+    if (ImGui::Checkbox("Calque visible", &app.scene.image.visible)) {
+        if (ImGui::IsItemActivated()) app.pushUndo();
+        app.dirty = true;
+    }
+    ImGui::Separator();
+    if (toolBtnIcon("fit-view", "Ajuster le calque à la vue courante (taille + position)",
+                    false, kGreen, false, "Ajuster à la vue", bw))
+        app.fitLayerToView();
+    if (toolBtnIcon("delete-shape", "Retirer le calque d'image de la scène", false, kRed,
+                    false, "Retirer le calque", bw))
+        app.removeImageLayer();
+    if (app.layerTool != LayerTool::None) {
+        ImGui::Separator();
+        ImGui::TextDisabled("Armé : %s — clic droit ou Échap au canvas pour désarmer.",
+                            app.layerTool == LayerTool::Move   ? "déplacer"
+                            : app.layerTool == LayerTool::Rotate ? "pivoter"
+                                                                 : "échelle");
+    }
+    ImGui::EndPopup();
+}
+
+void layerLoadDialog(App& app) {
+    if (!app.dlgLayerOpen) return;
+    const char* title = "Charger une image (calque)";
+    ImGui::OpenPopup(title);
+    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Chemin du fichier (PNG ou JPEG) :");
+        ImGui::SetNextItemWidth(470);
+        ImGui::InputText("##layerpath", app.dlgLayerPath, sizeof(app.dlgLayerPath));
+        const float bw = dialogBtnWidth({"Charger", "Annuler"});
+        bool doLoad = false;
+        if (toolBtnIcon("check", "Charger l'image en calque de fond", false, kGreen, false,
+                        "Charger", bw) ||
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) && ImGui::IsWindowFocused()))
+            doLoad = true;
+        if (doLoad) {
+            // En cas d'échec, l'erreur est signalée (statut) sans fermer.
+            if (app.loadImageLayer(app.dlgLayerPath)) {
+                app.dlgLayerOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (toolBtnIcon("close", "Annuler", false, kGreen, false, "Annuler", bw)) {
+            app.dlgLayerOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            app.dlgLayerOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void alignPanel(App& app) {
     if (!app.alignOpen) return;
     ImGui::SetNextWindowPos(ImVec2(12, 96), ImGuiCond_FirstUseEver);
@@ -1765,6 +1885,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
         ImGui::BulletText("Groupe Scène — Saisir : clic gauche + glisser déplace tous les plans · Pivoter : glisser horizontal tourne autour du point saisi · Échelle : glisser vertical agrandit (bas) / réduit (haut) — clic droit ou Échap désarme");
         ImGui::BulletText("Groupe Scène — bouton fond : couleur du canvas (molette sur le bouton : foncer / éclaircir) · bouton réinitialiser : vider la scène (confirmation)");
+        ImGui::BulletText("Groupe Scène — bouton calque (7.7) : image de fond chargée (PNG/JPEG), enregistrée avec la scène — popup : opacité, visibilité, manipuler (déplacer / pivoter / échelle au canvas, clic droit ou Échap désarme) ; le glisser-vertical de l'outil Échelle ajuste la taille, l'horizontal la largeur (Maj : hauteur)");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
         ImGui::BulletText("Bouton Aimant de la barre d'outils : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");
@@ -2557,6 +2678,7 @@ void frame(App& app) {
     settingsPanel(app);
     saveDialog(app);
     importDialog(app);
+    layerLoadDialog(app);
     resetDialog(app);
     deletePlaneDialog(app);
     renameDialog(app);

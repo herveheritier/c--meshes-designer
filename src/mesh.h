@@ -132,9 +132,27 @@ public:
 // L'ordre des plans est significatif : le plan d'indice le plus élevé recouvre
 // les précédents là où ils se chevauchent. Un seul plan est actif à la fois.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Calque d'image de fond (7.7) : image (PNG/JPEG) affichée derrière les plans,
+// persistée dans le JSON de scène. Réorientable / déplaçable / déformable à la
+// souris ; l'image décodée vit côté application (texture GL), ceci n'est que
+// l'état du calque.
+// ---------------------------------------------------------------------------
+struct ImageLayer {
+    std::string path;        // fichier image ; vide = aucun calque
+    bool visible = true;
+    Vec2 center{0, 0};       // centre en coordonnées monde
+    float rotation = 0.0f;   // radians
+    float scaleX = 1.0f;     // unités monde par pixel de texture
+    float scaleY = 1.0f;     // idem (axe Y) — permet la déformation
+    float opacity = 1.0f;    // 0..1
+    int w = 0, h = 0;        // dimensions décodées (pixels), pour l'aperçu
+};
+
 struct Scene {
     std::vector<Mesh2D> planes;   // ordre d'empilement
     int active = 0;               // plan actif (index dans `planes`)
+    ImageLayer image;             // calque d'image de fond (7.7)
 
     int count() const { return (int)planes.size(); }
     int countVerts() const {
@@ -163,6 +181,7 @@ struct Scene {
         planes.clear();
         planes.emplace_back();
         active = 0;
+        image = ImageLayer{};   // le calque (7.7) est retiré avec la scène
     }
 };
 

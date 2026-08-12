@@ -33,6 +33,7 @@ add_executable(mesheditor
   src/camera.cpp
   src/io.cpp
   src/renderer.cpp
+  src/stb_image_impl.cpp
   src/svgicon.cpp
   src/ui.cpp
   external/imgui/imgui.cpp

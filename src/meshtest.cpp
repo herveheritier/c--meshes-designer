@@ -586,6 +586,49 @@ static void testSpecFormats() {
         CHECK(loadSceneJson(legacy, "/tmp/meshtest_legacy").ok);
         CHECK((int)legacy.scene.planes.size() == 1);
     }
+    // Calque d'image (7.7) : persisté avec la scène (JSON) — toutes les
+    // dimensions de l'état, et compatibilité ascendante (absent = aucun calque).
+    {
+        SceneSnapshot snap;
+        snap.scene.activePlane().addVertex({0, 0});
+        snap.scene.image.path = "ref.png";
+        snap.scene.image.visible = false;
+        snap.scene.image.center = {3.5f, -2.0f};
+        snap.scene.image.rotation = 1.2f;
+        snap.scene.image.scaleX = 0.25f;
+        snap.scene.image.scaleY = 0.5f;
+        snap.scene.image.opacity = 0.6f;
+        snap.scene.image.w = 640;
+        snap.scene.image.h = 480;
+        CHECK(saveSceneJson(snap, "/tmp/meshtest_layer").ok);
+        SceneSnapshot back;
+        CHECK(loadSceneJson(back, "/tmp/meshtest_layer").ok);
+        CHECK(back.scene.image.path == "ref.png");
+        CHECK(!back.scene.image.visible);
+        CHECK(back.scene.image.center.x == 3.5f && back.scene.image.center.y == -2.0f);
+        CHECK(back.scene.image.rotation == 1.2f);
+        CHECK(back.scene.image.scaleX == 0.25f && back.scene.image.scaleY == 0.5f);
+        CHECK(back.scene.image.opacity == 0.6f);
+        CHECK(back.scene.image.w == 640 && back.scene.image.h == 480);
+        // Scène sans champ « image » (ancien fichier) : aucun calque.
+        CHECK(writeTestFile("/tmp/meshtest_layer_legacy.json",
+                            "{\"mesh\":{\"verts\":[[0,0]],\"faces\":[]}}")
+                  .ok);
+        SceneSnapshot leg;
+        CHECK(loadSceneJson(leg, "/tmp/meshtest_layer_legacy").ok);
+        CHECK(leg.scene.image.path.empty());
+        CHECK(leg.scene.image.visible);
+        // Autosave : l'état du calque accompagne aussi les scènes d'historique.
+        Scene u;
+        u.activePlane().addVertex({5, 5});
+        u.image.path = "hist.png";
+        std::vector<Scene> undo{u}, redo;
+        CHECK(saveAutoJson(snap, undo, redo, "/tmp/meshtest_layer_auto.json").ok);
+        SceneSnapshot ab;
+        std::vector<Scene> bu, br;
+        CHECK(loadAutoJson(ab, bu, br, "/tmp/meshtest_layer_auto.json").ok);
+        CHECK((int)bu.size() == 1 && bu[0].image.path == "hist.png");
+    }
     // JSON invalide : signalé sans modification
     {
         SceneSnapshot out;
@@ -760,7 +803,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 71);  // toutes les icônes du dossier assets/ (1 ajoutée : filaire)
+    CHECK(n == 72);  // toutes les icônes du dossier assets/ (1 ajoutée : calque)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux

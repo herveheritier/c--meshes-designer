@@ -2,11 +2,16 @@
 #include "pngexport.h"
 #include "triangulate.h"
 
+// Décodeur PNG/JPEG (calque d'image de fond, 7.7) — implémentation dans
+// src/stb_image_impl.cpp.
+#include "stb_image.h"
+
 #include <SDL.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 
@@ -148,6 +153,10 @@ void App::init() {
 void App::shutdown() {
     saveAutoFile();
     savePrefsFile();
+    if (imageTex) {
+        renderer.destroyTexture(imageTex);
+        imageTex = 0;
+    }
     renderer.shutdown();
 }
 
@@ -161,6 +170,7 @@ void App::newDocument() {
     triP1 = triP2 = -1;
     dirty = false;
     sceneTool = SceneTool::None;
+    layerTool = LayerTool::None;
     bgColor = kBgDefault;
     camera.reset();
     cameraFramed = false;
@@ -375,6 +385,26 @@ void App::update(float dt) {
                 beginSceneDrag(mouseWorld, mouseScreen);
             } else if (io.MouseClicked[1]) {
                 toggleSceneTool(SceneTool::None);  // clic droit : désarmer
+            }
+        }
+        return;
+    }
+
+    // --- Calque d'image (7.7) : déplacer / pivoter / redimensionner l'image au
+    // canvas. Même principe que le mode Scène : l'outil armé monopolise le
+    // canvas (clic gauche + glisser), le clic droit désarme.
+    if (layerTool != LayerTool::None) {
+        if (isLayerDragging()) {
+            if (io.MouseDown[0]) {
+                applyLayerDrag(mouseWorld, mouseScreen);
+            } else {
+                endLayerDrag();
+            }
+        } else if (drag_.kind == DragKind::None) {
+            if (io.MouseClicked[0]) {
+                beginLayerDrag(mouseWorld, mouseScreen);
+            } else if (io.MouseClicked[1]) {
+                toggleLayerTool(LayerTool::None);  // clic droit : désarmer
             }
         }
         return;
@@ -605,6 +635,42 @@ void App::drawScene() {
     renderer.setProjection(camera.cx - halfW, camera.cx + halfW, camera.cy - halfH,
                            camera.cy + halfH);
     renderer.clear(bgColor);
+
+    // Calque d'image (7.7) : synchronise la texture avec scene.image.path
+    // (chargement / déchargement quand le chemin change — chargement d'une
+    // scène, annulation, réinitialisation…).
+    if (scene.image.path != imageLoadedPath) {
+        if (imageTex) {
+            renderer.destroyTexture(imageTex);
+            imageTex = 0;
+        }
+        if (!scene.image.path.empty()) {
+            if (!loadImageLayer(scene.image.path)) {
+                // Échec (fichier introuvable, format…) : le calque est retiré,
+                // le statut a été posé par loadImageLayer.
+                scene.image = ImageLayer{};
+            }
+        }
+        imageLoadedPath = scene.image.path;
+    }
+
+    // Dessin du calque derrière la grille et les plans (seulement si la
+    // texture a bien été chargée pour le chemin courant).
+    if (imageTex && scene.image.visible && scene.image.path == imageLoadedPath &&
+        scene.image.w > 0 && scene.image.h > 0) {
+        const float hw = scene.image.w * scene.image.scaleX * 0.5f;
+        const float hh = scene.image.h * scene.image.scaleY * 0.5f;
+        const float cs = std::cos(scene.image.rotation);
+        const float sn = std::sin(scene.image.rotation);
+        const Vec2 c = scene.image.center;
+        // Les 4 coins (±hw, ±hh) tournés de `rotation` autour du centre.
+        const Vec2 p0{c.x - cs * hw + sn * hh, c.y - sn * hw - cs * hh};
+        const Vec2 p1{c.x + cs * hw + sn * hh, c.y + sn * hw - cs * hh};
+        const Vec2 p2{c.x + cs * hw - sn * hh, c.y + sn * hw + cs * hh};
+        const Vec2 p3{c.x - cs * hw - sn * hh, c.y - sn * hw + cs * hh};
+        renderer.drawTexturedQuad(imageTex, p0, p1, p2, p3,
+                                  rgba(1.0f, 1.0f, 1.0f, scene.image.opacity));
+    }
 
     // Kiosque : la scène d'édition reste visible DERRIÈRE le voile plein écran
     // dessiné par l'interface (ui.cpp). Aucune édition n'est possible (update()
@@ -1715,18 +1781,23 @@ void App::toggleSceneTool(SceneTool t) {
         drag_.kind = DragKind::None;
     } else if (drag_.kind == DragKind::Shape) {
         cancelShapeTrace();
+    } else if (isLayerDragging()) {
+        // Saisie du calque (7.7) en cours : terminée proprement (annule si rien
+        // n'a bougé, garde l'étape sinon) avant de changer d'outil.
+        endLayerDrag();
     } else {
         drag_.kind = DragKind::None;
     }
     // Le canvas est entièrement dédié au mode scène : les modes souris
-    // transitoires (pinceau, mesure, fusion, tracés) se désarment, l'outil
-    // revient à la sélection.
+    // transitoires (pinceau, mesure, fusion, tracés) et l'outil calque se
+    // désarment, l'outil revient à la sélection.
     if (t != SceneTool::None) {
         brushArmed = false;
         measureActive = false;
         mergeMode = MergeMode::Off;
         cutPts.clear();
         triP1 = triP2 = -1;
+        layerTool = LayerTool::None;
         if (tool != Tool::Select) {
             tool = Tool::Select;
             setStatus("Mode scène : les outils d'édition sont désarmés");
@@ -1857,6 +1928,219 @@ void App::endSceneDrag() {
                                                      : "Tous les plans mis à l'échelle";
     setStatus(std::string(what) + " (mode scène)");
     logMsg(std::string(what));
+}
+
+// ---------------------------------------------------------------------------
+// Calque d'image de fond (7.7) : déplacer / pivoter / redimensionner l'image
+// ---------------------------------------------------------------------------
+void App::toggleLayerTool(LayerTool t) {
+    if (scene.image.path.empty() && t != LayerTool::None) {
+        setStatus("Aucun calque : chargez d'abord une image (bouton Calque)");
+        return;
+    }
+    if (layerTool == t) {
+        layerTool = LayerTool::None;
+        setStatus("Manipulation du calque désarmée");
+        return;
+    }
+    // Une saisie en cours est terminée proprement avant de changer d'outil
+    // (les drags d'édition sont laissés tels quels : la prochaine commande
+    // d'édition les finalisera normalement).
+    if (isLayerDragging()) {
+        endLayerDrag();
+    } else if (isSceneDragging()) {
+        endSceneDrag();
+    } else if (drag_.kind == DragKind::Shape) {
+        cancelShapeTrace();
+    } else if (drag_.kind != DragKind::None) {
+        drag_.kind = DragKind::None;
+    }
+    // Comme le mode Scène, l'outil calque monopolise le canvas : le mode scène
+    // et les modes transitoires se désarment, l'outil revient à la sélection.
+    if (t != LayerTool::None) {
+        sceneTool = SceneTool::None;
+        brushArmed = false;
+        measureActive = false;
+        mergeMode = MergeMode::Off;
+        cutPts.clear();
+        triP1 = triP2 = -1;
+        if (tool != Tool::Select) {
+            tool = Tool::Select;
+            setStatus("Calque : les outils d'édition sont désarmés");
+        }
+    }
+    layerTool = t;
+    switch (t) {
+        case LayerTool::Move:
+            setStatus("Déplacer le calque — clic gauche + glisser au canvas · clic "
+                      "droit ou Échap : désarmer");
+            break;
+        case LayerTool::Rotate:
+            setStatus("Pivoter le calque — clic gauche + glisser autour du centre · "
+                      "clic droit ou Échap : désarmer");
+            break;
+        case LayerTool::Scale:
+            setStatus("Redimensionner le calque — glisser vertical : taille · "
+                      "horizontal : largeur · Maj+horizontal : hauteur · clic droit "
+                      "ou Échap : désarmer");
+            break;
+        default:
+            // Désarmement par clic droit au canvas (t == None) : retour d'état.
+            setStatus("Manipulation du calque désarmée");
+            break;
+    }
+}
+
+bool App::isLayerDragging() const {
+    return drag_.kind == DragKind::LayerMove || drag_.kind == DragKind::LayerRotate ||
+           drag_.kind == DragKind::LayerScale;
+}
+
+void App::beginLayerDrag(const Vec2& world, const Vec2& screen) {
+    if (layerTool == LayerTool::None) return;
+    pushUndo();  // l'état du calque fait partie de la scène (une étape par geste)
+    drag_.layerStartCenter = scene.image.center;
+    drag_.layerStartRot = scene.image.rotation;
+    drag_.layerStartSx = scene.image.scaleX;
+    drag_.layerStartSy = scene.image.scaleY;
+    drag_.sceneAnchor = world;
+    drag_.sceneStartScreen = screen;
+    switch (layerTool) {
+        case LayerTool::Move: drag_.kind = DragKind::LayerMove; break;
+        case LayerTool::Rotate: drag_.kind = DragKind::LayerRotate; break;
+        case LayerTool::Scale: drag_.kind = DragKind::LayerScale; break;
+        default: break;
+    }
+}
+
+void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
+    ImageLayer& il = scene.image;
+    switch (layerTool) {
+        case LayerTool::Move: {
+            const Vec2 delta = world - drag_.sceneAnchor;
+            il.center = drag_.layerStartCenter + delta;
+            break;
+        }
+        case LayerTool::Rotate: {
+            // Le point saisi suit le curseur autour du centre : la rotation
+            // demandée est l'angle entre la direction départ et la direction
+            // courante du curseur (indépendant du zoom et du point de saisie).
+            const Vec2 d0 = drag_.sceneAnchor - drag_.layerStartCenter;
+            const Vec2 d1 = world - il.center;
+            float a0 = std::atan2(d0.y, d0.x);
+            float a1 = std::atan2(d1.y, d1.x);
+            il.rotation = drag_.layerStartRot + (a1 - a0);
+            break;
+        }
+        case LayerTool::Scale: {
+            const float k =
+                std::exp((screen.y - drag_.sceneStartScreen.y) * kSceneScalePerPx);
+            const float dx =
+                (screen.x - drag_.sceneStartScreen.x) * kSceneScalePerPx;
+            const bool shift = ImGui::GetIO().KeyShift;
+            // Vertical = taille uniforme ; horizontal = largeur (déformation) ;
+            // Maj+horizontal = hauteur seule.
+            il.scaleX = drag_.layerStartSx * k * (shift ? 1.0f : std::exp(dx));
+            il.scaleY = drag_.layerStartSy * k * (shift ? std::exp(dx) : 1.0f);
+            il.scaleX = std::clamp(il.scaleX, 1e-4f, 1e5f);
+            il.scaleY = std::clamp(il.scaleY, 1e-4f, 1e5f);
+            break;
+        }
+        default: break;
+    }
+}
+
+void App::endLayerDrag() {
+    const DragKind k = drag_.kind;
+    if (!isLayerDragging()) return;
+    const ImageLayer& il = scene.image;
+    const bool changed = distance(il.center, drag_.layerStartCenter) > 1e-5f ||
+                         std::fabs(il.rotation - drag_.layerStartRot) > 1e-5f ||
+                         std::fabs(il.scaleX - drag_.layerStartSx) > 1e-5f ||
+                         std::fabs(il.scaleY - drag_.layerStartSy) > 1e-5f;
+    drag_.kind = DragKind::None;
+    if (!changed) {
+        if (!undoStack.empty()) undoStack.pop_back();  // clic sans glisser : pas d'étape
+        setStatus("Calque : aucun changement");
+        return;
+    }
+    const char* what = (k == DragKind::LayerMove)    ? "Calque déplacé"
+                     : (k == DragKind::LayerRotate)  ? "Calque pivoté"
+                                                     : "Calque redimensionné";
+    setStatus(std::string(what) + " (calque d'image)");
+    logMsg(std::string(what));
+}
+
+bool App::loadImageLayer(const std::string& path) {
+    if (path.empty()) return false;
+    int w = 0, h = 0, ch = 0;
+    unsigned char* px = stbi_load(path.c_str(), &w, &h, &ch, 4);  // force RGBA
+    if (!px) {
+        setStatus("Calque : impossible de charger « " + path + " »");
+        logMsg("Calque : échec du chargement de « " + path + " »");
+        return false;
+    }
+    if (w <= 0 || h <= 0 || w > 16384 || h > 16384) {
+        stbi_image_free(px);
+        setStatus("Calque : dimensions d'image invalides");
+        return false;
+    }
+    // stb lit les lignes de haut en bas : on les renverse pour que l'image
+    // soit à l'endroit en coordonnées monde (Y vers le haut, UV bas = ligne 0).
+    std::vector<unsigned char> flipped((size_t)w * (size_t)h * 4u);
+    for (int y = 0; y < h; ++y) {
+        std::memcpy(flipped.data() + (size_t)(h - 1 - y) * (size_t)w * 4u,
+                    px + (size_t)y * (size_t)w * 4u, (size_t)w * 4u);
+    }
+    stbi_image_free(px);
+    const unsigned tex = renderer.createTexture(w, h, flipped.data());
+    if (!tex) {
+        setStatus("Calque : échec de la création de la texture");
+        return false;
+    }
+    if (imageTex) renderer.destroyTexture(imageTex);
+    imageTex = tex;
+    scene.image.path = path;
+    scene.image.w = w;
+    scene.image.h = h;
+    // Taille par défaut : l'image occupe ~la moitié de la vue (contenue).
+    const float vwWorld = viewportSize.x / camera.zoom;
+    const float vhWorld = viewportSize.y / camera.zoom;
+    const float s = std::min(vwWorld * 0.5f / (float)w, vhWorld * 0.5f / (float)h);
+    scene.image.scaleX = scene.image.scaleY = std::max(s, 1e-4f);
+    scene.image.center = {camera.cx, camera.cy};
+    scene.image.rotation = 0.0f;
+    scene.image.opacity = 1.0f;
+    scene.image.visible = true;
+    dirty = true;
+    setStatus("Calque chargé : " + path + " (" + std::to_string(w) + "×" +
+              std::to_string(h) + ")");
+    logMsg("Calque d'image chargé : " + path);
+    return true;
+}
+
+void App::removeImageLayer() {
+    if (scene.image.path.empty()) return;
+    pushUndo();
+    scene.image = ImageLayer{};
+    dirty = true;
+    layerTool = LayerTool::None;
+    // La texture est détruite par la synchronisation de drawScene.
+    setStatus("Calque d'image retiré");
+    logMsg("Calque d'image retiré");
+}
+
+void App::fitLayerToView() {
+    if (scene.image.path.empty() || scene.image.w <= 0 || scene.image.h <= 0) return;
+    pushUndo();
+    const float vwWorld = viewportSize.x / camera.zoom;
+    const float vhWorld = viewportSize.y / camera.zoom;
+    const float s = std::min(vwWorld * 0.5f / (float)scene.image.w,
+                             vhWorld * 0.5f / (float)scene.image.h);
+    scene.image.scaleX = scene.image.scaleY = std::max(s, 1e-4f);
+    scene.image.center = {camera.cx, camera.cy};
+    dirty = true;
+    setStatus("Calque ajusté à la vue");
 }
 
 // ---------------------------------------------------------------------------
@@ -2364,6 +2648,7 @@ void App::resetScene() {
     triP1 = triP2 = -1;
     dirty = false;
     sceneTool = SceneTool::None;      // 8.5 : le mode scène se désarme aussi
+    layerTool = LayerTool::None;      // 7.7 : le calque (retiré avec la scène) aussi
     bgColor = kBgDefault;             // fond par défaut (ardoise)
     camera.reset();
     cameraFramed = false;
@@ -2377,6 +2662,20 @@ void App::onEscape() {
     if (kiosk) {
         kiosk = false;
         setStatus("Kiosque : aucun changement");
+        return;
+    }
+    // Calque d'image (7.7) : Échap annule la saisie en cours puis désarme.
+    if (layerTool != LayerTool::None || isLayerDragging()) {
+        if (isLayerDragging()) {
+            scene.image.center = drag_.layerStartCenter;
+            scene.image.rotation = drag_.layerStartRot;
+            scene.image.scaleX = drag_.layerStartSx;
+            scene.image.scaleY = drag_.layerStartSy;
+            if (!undoStack.empty()) undoStack.pop_back();
+            drag_.kind = DragKind::None;
+        }
+        layerTool = LayerTool::None;
+        setStatus("Manipulation du calque désarmée");
         return;
     }
     // Mode scène (8.5) : Échap annule la saisie en cours puis désarme l'outil.
