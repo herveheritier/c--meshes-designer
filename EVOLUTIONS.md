@@ -23,11 +23,16 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] ajouter un réticule supplémentaire composé de la projection symétrique des axes 
 - [ ] pouvoir récupérer une couleur avec une pipette (si possible partout sur l'écran même hors fenêtre)
 
 ## Effectuées
 
+- 2026-08-12 · `<commit>` — Réticule miroir (9.2) : 4e état du réticule (Y) —
+  croix de visée au curseur et à ses trois reflets à travers les axes du monde
+  (axe X, axe Y, symétrie centrale) : pendant un tracé ou un déplacement, on
+  voit en direct où tomberaient les points symétriques de la position courante
+  — un guide pour dessiner des formes symétriques. Cycle off / simple /
+  symétrique / miroir, statut et aide mis à jour.
 - 2026-08-12 · `bd6668b` — Opacité par plan (7.8) : chaque plan a sa propre
   transparence, indépendante de celle des faces — le bouton « Opacité » du
   groupe Plans ouvre un curseur pour le plan actif, la molette sur le bouton

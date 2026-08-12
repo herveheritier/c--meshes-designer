@@ -2406,10 +2406,12 @@ void App::cycleTarget() {
 }
 
 void App::cycleReticle() {
-    reticle = (ReticleState)(((int)reticle + 1) % 3);
-    setStatus(reticle == ReticleState::Off        ? "Réticule désactivé"
-              : reticle == ReticleState::Simple   ? "Réticule simple"
-                                                  : "Réticule symétrique");
+    reticle = (ReticleState)(((int)reticle + 1) % 4);
+    setStatus(reticle == ReticleState::Off         ? "Réticule désactivé"
+              : reticle == ReticleState::Simple    ? "Réticule simple"
+              : reticle == ReticleState::Symmetric ? "Réticule symétrique (croix pleine grandeur)"
+                                                   : "Réticule miroir (reflets du curseur à "
+                                                     "travers les axes du monde)");
 }
 
 void App::cyclePreview() {

@@ -590,7 +590,7 @@ void toolbar(App& app) {
             valueLabel(stepbuf, stepW);
         }
         ImGui::SameLine();
-        if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique",
+        if (toolBtnIcon("reticle", "Réticule (Y) : désactivé / simple / symétrique / miroir",
                         app.reticle != ReticleState::Off, kGreen, false))
             app.cycleReticle();
     }
@@ -1375,9 +1375,29 @@ void viewport(App& app) {
             if (app.reticle == ReticleState::Simple) {
                 dl->AddLine(ImVec2(mp.x - 8, mp.y), ImVec2(mp.x + 8, mp.y), col);
                 dl->AddLine(ImVec2(mp.x, mp.y - 8), ImVec2(mp.x, mp.y + 8), col);
-            } else {
+            } else if (app.reticle == ReticleState::Symmetric) {
                 dl->AddLine(ImVec2(0, mp.y), ImVec2(size.x, mp.y), col);
                 dl->AddLine(ImVec2(mp.x, 0), ImVec2(mp.x, size.y), col);
+            } else {
+                // Miroir : croix de visée à la position du curseur et à ses
+                // trois reflets à travers les axes du monde (X, Y et symétrie
+                // centrale) — on voit où tomberaient les points symétriques
+                // de la position courante pendant le tracé.
+                const Vec2 vps = app.viewportVec2();
+                const Vec2 rel{mp.x - pos.x, mp.y - pos.y};
+                const Vec2 wp = app.camera.screenToWorld(rel, vps);
+                const Vec2 mir[4] = {
+                    wp,
+                    {-wp.x, wp.y},    // reflet à travers l'axe Y
+                    {wp.x, -wp.y},    // reflet à travers l'axe X
+                    {-wp.x, -wp.y},   // symétrie centrale
+                };
+                auto cross = [&](const Vec2& p) {
+                    const Vec2 sp = app.camera.worldToScreen(p, vps) + Vec2{pos.x, pos.y};
+                    dl->AddLine(ImVec2(sp.x - 5, sp.y), ImVec2(sp.x + 5, sp.y), col);
+                    dl->AddLine(ImVec2(sp.x, sp.y - 5), ImVec2(sp.x, sp.y + 5), col);
+                };
+                for (const Vec2& p : mir) cross(p);
             }
             ImGui::SetMouseCursor(ImGuiMouseCursor_None);
         }

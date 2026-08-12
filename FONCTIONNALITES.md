@@ -571,8 +571,16 @@ préférences (prefs.json) et restaurés au lancement suivant.
 
 ### 9.2 Réticule
 
-Le bouton **Réticule** (ou touche `Y`) fait défiler **trois états** :
-désactivé → simple (croix de visée) → symétrique (croix pleine grandeur).
+Le bouton **Réticule** (ou touche `Y`) fait défiler **quatre états** :
+
+1. **Désactivé** ;
+2. **Simple** : croix de visée au curseur ;
+3. **Symétrique** : croix pleine grandeur (lignes horizontale et verticale à
+   travers le curseur) ;
+4. **Miroir** : croix de visée au curseur **et à ses trois reflets à travers
+   les axes du monde** (axe X, axe Y et symétrie centrale) — pendant un tracé
+   ou un déplacement, on voit en direct où tomberaient les points symétriques
+   de la position courante : un guide pour dessiner des formes symétriques.
 
 ### 9.3 Prévisualisation (mode œil)
 
@@ -716,7 +724,7 @@ dans une fenêtre flottante :
 | `Ctrl+S` | Enregistrer (fenêtre d'emplacement) |
 | `Ctrl+0` | Réinitialiser le zoom (100 %, recentré) |
 | `G` | Afficher / masquer la grille |
-| `Y` | Réticule : 3 états (off / simple / symétrique) |
+| `Y` | Réticule : 4 états (off / simple / symétrique / miroir) |
 | `F` | Afficher / masquer le compteur de redessins (HUD) |
 | `P` | Prévisualiser : cycle aperçu simple → plans → édition |
 | `Accueil` | Tout afficher : zoom automatique sur la scène entière |

@@ -21,7 +21,9 @@ enum class SelMode { Vertex, Edge, Face };
 enum class Tool { Select, Rectangle, Square, Circle, Triangle, Pentagon, Hexagon, Star, Ring, Crown, Cut };
 inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut; }
 
-enum class ReticleState { Off, Simple, Symmetric };
+// Réticules (9.2) : Off → Simple (croix de visée) → Symmetric (croix pleine
+// grandeur) → Mirror (reflets du curseur à travers les axes du monde).
+enum class ReticleState { Off, Simple, Symmetric, Mirror };
 enum class PreviewMode { Off, Simple, Planes };
 
 // Mode « Scène » (8.5) : manipulation de TOUS les plans à la souris.
