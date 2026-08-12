@@ -2166,8 +2166,9 @@ void App::toggleLayerTool(LayerTool t) {
         case LayerTool::Scale:
             setStatus("Redimensionner le calque — poignées : bords gauche/droit = "
                       "largeur (X), haut/bas = hauteur (Y), coins = les deux axes "
-                      "· glisser ailleurs : vertical = taille, horizontal = largeur, "
-                      "Maj+horizontal = hauteur · clic droit ou Échap : désarmer");
+                      "(rapport x/y conservé) · glisser ailleurs : vertical = "
+                      "taille, horizontal = largeur, Maj+horizontal = hauteur · "
+                      "clic droit ou Échap : désarmer");
             break;
         default:
             // Désarmement par clic droit au canvas (t == None) : retour d'état.
@@ -2271,8 +2272,25 @@ void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
                 const float minHw = 1e-4f, minHh = 1e-4f;
                 const float hw0 = il.w * drag_.layerStartSx * 0.5f;
                 const float hh0 = il.h * drag_.layerStartSy * 0.5f;
-                const float newHw = (sx != 0.0f) ? std::max(lx * sx * 0.5f, minHw) : hw0;
-                const float newHh = (sy != 0.0f) ? std::max(ly * sy * 0.5f, minHh) : hh0;
+                float newHw, newHh;
+                if (sx != 0.0f && sy != 0.0f) {
+                    // Coin (les deux axes) : un seul facteur k, projection du
+                    // curseur sur la diagonale (du coin fixe vers la poignée
+                    // saisie) — le rapport x/y du calque est préservé (pas de
+                    // distorsion, à l'instar d'un zoom centré sur le coin).
+                    // hx = sx·hw0 et hy = sy·hh0 : la projection vaut
+                    // (lx·hx + ly·hy) / (2·(hw0² + hh0²)), k = 1 au départ.
+                    const float k =
+                        std::max((lx * hx + ly * hy) /
+                                     (2.0f * (hw0 * hw0 + hh0 * hh0)),
+                                 0.0f);
+                    newHw = std::max(hw0 * k, minHw);
+                    newHh = std::max(hh0 * k, minHh);
+                } else {
+                    // Bord seul (X ou Y) : un seul axe, l'autre inchangé.
+                    newHw = (sx != 0.0f) ? std::max(lx * sx * 0.5f, minHw) : hw0;
+                    newHh = (sy != 0.0f) ? std::max(ly * sy * 0.5f, minHh) : hh0;
+                }
                 il.scaleX = std::clamp(2.0f * newHw / (float)il.w, 1e-4f, 1e5f);
                 il.scaleY = std::clamp(2.0f * newHh / (float)il.h, 1e-4f, 1e5f);
                 il.center = anchor + Vec2{cs * sx * newHw - sn * sy * newHh,

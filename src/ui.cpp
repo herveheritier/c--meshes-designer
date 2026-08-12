@@ -1693,8 +1693,9 @@ void layerPopup(App& app) {
     ImGui::SameLine();
     if (toolBtnIcon("scale", "Redimensionner le calque — poignées au canvas : "
                     "bords gauche/droit = largeur (X), haut/bas = hauteur (Y), "
-                    "coins = les deux axes ; sinon vertical : taille · horizontal : "
-                    "largeur · Maj+horizontal : hauteur",
+                    "coins = les deux axes (rapport x/y conservé) ; sinon "
+                    "vertical : taille · horizontal : largeur · Maj+horizontal : "
+                    "hauteur",
                     app.layerTool == LayerTool::Scale, kGreen, false, "Échelle", bw))
         app.toggleLayerTool(LayerTool::Scale);
     ImGui::Separator();

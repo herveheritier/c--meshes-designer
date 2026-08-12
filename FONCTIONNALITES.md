@@ -502,9 +502,11 @@ Le popup du bouton permet de :
     du centre) ;
   - **Échelle** : **8 poignées** apparaissent sur le calque — les milieux des
     arêtes **gauche/droite = axe X** (largeur seule), **haut/bas = axe Y**
-    (hauteur seule), et les **coins = les deux axes** à la fois ; la saisie
-    d'une poignée redimensionne en gardant **fixe l'arête / le coin opposé**
-    (rotation conservée). Saisie ailleurs : glisser vertical = taille
+    (hauteur seule), et les **coins = les deux axes** à la fois, en
+    **préservant le rapport x/y** du calque (un seul facteur le long de la
+    diagonale, comme un zoom centré sur le coin opposé — pas de distorsion) ;
+    la saisie d'une poignée redimensionne en gardant **fixe l'arête / le coin
+    opposé** (rotation conservée). Saisie ailleurs : glisser vertical = taille
     (proportionnel), horizontal = largeur (déformation), Maj+horizontal =
     hauteur ;
 - **Ajuster à la vue** : recentre et redimensionne le calque à ~la moitié de la
