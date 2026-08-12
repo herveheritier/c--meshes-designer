@@ -29,6 +29,9 @@
 #ifndef GL_NO_ERROR
 #define GL_NO_ERROR 0
 #endif
+#ifndef GL_RGB
+#define GL_RGB 0x1907
+#endif
 
 namespace mesh {
 
@@ -365,6 +368,15 @@ void Renderer::drawTexturedQuad(unsigned tex, const Vec2& p0, const Vec2& p1, co
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
     pfnDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+bool Renderer::readPixel(int px, int py, Color& out) const {
+    if (vw_ <= 0 || vh_ <= 0 || px < 0 || py < 0 || px >= vw_ || py >= vh_) return false;
+    unsigned char rgb[3] = {0, 0, 0};
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(vx_ + px, vy_ + (vh_ - 1 - py), 1, 1, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+    out = {rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    return true;
 }
 
 std::vector<unsigned char> Renderer::readPixelsRGBA() const {

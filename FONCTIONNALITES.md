@@ -392,6 +392,24 @@ d'une session à l'autre.
 La couleur d'un triangle **survit aux suppressions** de points, de segments ou de
 triangles voisins (voir 4.4), aux annulations, et aux enregistrements / chargements.
 
+### 6.5 Pipette de couleur
+
+Le bouton **Pipette** (paquet Outils) prélève la couleur réellement **affichée au
+canvas** et la pose comme **couleur du pinceau** :
+
+- **Armer** : cliquer sur le bouton (ou clic droit / Échap pour désarmer) — le
+  curseur devient une petite cible ;
+- **Prélever** : clic gauche sur le canvas — la couleur du pixel sous le
+  curseur (faces peintes, calque d'image, couleur du fond…) est affichée
+  (`#RRGGBB`), devient la couleur du pinceau et le **pinceau s'arme aussitôt**
+  (il n'y a plus qu'à cliquer pour peindre) ;
+- la pipette se désarme après chaque prélèvement.
+
+Le prélèvement lit ce qui est réellement rendu au canvas (la scène est
+échantillonnée avant le dessin de l'interface). La précision est celle d'un
+pixel ; le curseur cible aide à viser. La pipette couvre tout le canvas — les
+autres zones de l'écran (hors de la fenêtre) ne sont pas lues.
+
 ---
 
 ## 7. Gestion des plans

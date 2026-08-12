@@ -23,10 +23,19 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] pouvoir récupérer une couleur avec une pipette (si possible partout sur l'écran même hors fenêtre)
+Aucune évolution en attente — la liste est vide. 🎉
 
 ## Effectuées
 
+- 2026-08-12 · `<commit>` — Pipette de couleur (6.5) : bouton « Pipette » du
+  paquet Outils — armé, le curseur devient une petite cible et un clic gauche
+  sur le canvas prélève la couleur réellement affichée (faces peintes, calque
+  d'image, couleur du fond…) puis la pose comme couleur du pinceau (valeurs
+  RGB + hexa affichées, désarmement automatique après prélèvement, clic droit
+  ou Échap pour désarmer). L'échantillonnage lit le framebuffer juste après le
+  dessin de la scène (avant l'interface) avec l'échelle HiDPI ; lecture pixel
+  unique ajoutée au renderer. Icône pipette.svg, aide mise à jour. Portée : le
+  canvas de l'application (les zones hors fenêtre ne sont pas lues).
 - 2026-08-12 · `5def6bb` — Réticule miroir (9.2) : 4e état du réticule (Y) —
   croix de visée au curseur et à ses trois reflets à travers les axes du monde
   (axe X, axe Y, symétrie centrale) : pendant un tracé ou un déplacement, on

@@ -815,7 +815,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 74);  // toutes les icônes du dossier assets/ (1 ajoutée : opacité)
+    CHECK(n == 75);  // toutes les icônes du dossier assets/ (1 ajoutée : pipette)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux

@@ -173,6 +173,8 @@ void App::newDocument() {
     layerTool = LayerTool::None;
     lassoArmed = false;
     lassoPts.clear();
+    pipetteArmed = false;
+    pipettePending_ = false;
     bgColor = kBgDefault;
     camera.reset();
     cameraFramed = false;
@@ -434,6 +436,19 @@ void App::update(float dt) {
             } else if (io.MouseClicked[1]) {
                 toggleLasso();  // clic droit : désarmer
             }
+        }
+        return;
+    }
+
+    // --- Pipette (6.5) : un clic gauche sur le canvas demande le prélèvement
+    // (l'échantillonnage a lieu dans drawScene, quand la scène est dessinée et
+    // l'interface pas encore). Le mode armé monopolise le canvas.
+    if (pipetteArmed) {
+        if (io.MouseClicked[0] && viewportHovered) {
+            pipettePending_ = true;
+            pipettePos = mouseScreen;
+        } else if (io.MouseClicked[1]) {
+            togglePipette();  // clic droit : désarmer
         }
         return;
     }
@@ -714,6 +729,35 @@ void App::drawScene() {
         drawMeasureVisual();
         drawDragPreview();
     }
+    // Pipette (6.5) : le prélèvement demandé pendant update() est honoré ici —
+    // la scène vient d'être dessinée et l'interface pas encore, on lit donc le
+    // pixel réellement affiché au canvas. Échelle écran → framebuffer (HiDPI).
+    if (pipettePending_) {
+        pipettePending_ = false;
+        int fbW = 0, fbH = 0, winW = 0, winH = 0;
+        if (window) {
+            SDL_GL_GetDrawableSize(window, &fbW, &fbH);
+            SDL_GetWindowSize(window, &winW, &winH);
+        }
+        const float fx = winW > 0 ? (float)fbW / (float)winW : 1.0f;
+        const float fy = winH > 0 ? (float)fbH / (float)winH : 1.0f;
+        Color c;
+        if (renderer.readPixel((int)(pipettePos.x * fx), (int)(pipettePos.y * fy), c)) {
+            setBrushColor(c);  // pose la couleur ET arme le pinceau
+            char hex[8];
+            std::snprintf(hex, sizeof(hex), "#%02X%02X%02X", (int)(c.r * 255.0f),
+                          (int)(c.g * 255.0f), (int)(c.b * 255.0f));
+            setStatus("Pipette : " + std::string(hex) + " (" +
+                      std::to_string((int)(c.r * 255.0f)) + "," +
+                      std::to_string((int)(c.g * 255.0f)) + "," +
+                      std::to_string((int)(c.b * 255.0f)) + ") — pinceau armé");
+            logMsg("Pipette : " + std::string(hex));
+        } else {
+            setStatus("Pipette : clic hors du canvas");
+        }
+        pipetteArmed = false;
+    }
+
     // Export d'image : la demande (posée par l'interface) est honorée dès que
     // la scène est dessinée — avant que l'interface ne soit rendue par-dessus.
     exportPngIfRequested();
@@ -1234,6 +1278,8 @@ void App::toggleLasso() {
     mergeMode = MergeMode::Off;
     cutPts.clear();
     triP1 = triP2 = -1;
+    pipetteArmed = false;
+    pipettePending_ = false;
     if (drag_.kind != DragKind::None) drag_.kind = DragKind::None;
     if (tool != Tool::Select) {
         tool = Tool::Select;
@@ -1263,6 +1309,33 @@ void App::applyLassoSelection() {
     auto inside = [&](const Vec2& w) { return pointInPolygon(w, poly); };
     collectSelectionInside(inside);
     setStatus("Sélection au lasso (" + std::to_string(selectionCount()) + " élément(s))");
+}
+
+// ---------------------------------------------------------------------------
+// Pipette de couleur (6.5) : prélever la couleur affichée au canvas
+// ---------------------------------------------------------------------------
+void App::togglePipette() {
+    if (pipetteArmed) {
+        pipetteArmed = false;
+        pipettePending_ = false;
+        setStatus("Pipette désarmée");
+        return;
+    }
+    // Comme les autres modes canvas, la pipette désarme le reste.
+    sceneTool = SceneTool::None;
+    layerTool = LayerTool::None;
+    lassoArmed = false;
+    lassoPts.clear();
+    brushArmed = false;
+    measureActive = false;
+    mergeMode = MergeMode::Off;
+    cutPts.clear();
+    triP1 = triP2 = -1;
+    if (drag_.kind != DragKind::None) drag_.kind = DragKind::None;
+    if (tool != Tool::Select) tool = Tool::Select;
+    pipetteArmed = true;
+    setStatus("Pipette armée — clic gauche sur le canvas : prélever la couleur "
+              "affichée (faces, image, fond…) · clic droit ou Échap : désarmer");
 }
 
 void App::collectSelectionInside(const std::function<bool(const Vec2&)>& inside) {
@@ -1888,6 +1961,8 @@ void App::toggleSceneTool(SceneTool t) {
         layerTool = LayerTool::None;
         lassoArmed = false;
         lassoPts.clear();
+        pipetteArmed = false;
+        pipettePending_ = false;
         if (tool != Tool::Select) {
             tool = Tool::Select;
             setStatus("Mode scène : les outils d'édition sont désarmés");
@@ -2056,6 +2131,8 @@ void App::toggleLayerTool(LayerTool t) {
         triP1 = triP2 = -1;
         lassoArmed = false;
         lassoPts.clear();
+        pipetteArmed = false;
+        pipettePending_ = false;
         if (tool != Tool::Select) {
             tool = Tool::Select;
             setStatus("Calque : les outils d'édition sont désarmés");
@@ -2597,6 +2674,8 @@ void App::toggleKiosk() {
         // Les modes qui monopolisent le canvas se désarment en entrant au kiosque.
         lassoArmed = false;
         lassoPts.clear();
+        pipetteArmed = false;
+        pipettePending_ = false;
         setStatus("Kiosque — déplacez la souris ou utilisez ←/→ : le plan en avant "
                   "est pré-sélectionné ; clic gauche : choisir ; Échap ou clic droit : sortir");
     } else {
@@ -2748,6 +2827,8 @@ void App::resetScene() {
     layerTool = LayerTool::None;      // 7.7 : le calque (retiré avec la scène) aussi
     lassoArmed = false;               // 5.9 : le lasso se désarme aussi
     lassoPts.clear();
+    pipetteArmed = false;             // 6.5 : la pipette se désarme aussi
+    pipettePending_ = false;
     bgColor = kBgDefault;             // fond par défaut (ardoise)
     camera.reset();
     cameraFramed = false;
@@ -2783,6 +2864,13 @@ void App::onEscape() {
         if (drag_.kind == DragKind::Lasso) drag_.kind = DragKind::None;
         lassoArmed = false;
         setStatus("Sélection au lasso désarmée");
+        return;
+    }
+    // Pipette (6.5) : Échap annule le prélèvement en attente et désarme.
+    if (pipetteArmed) {
+        pipetteArmed = false;
+        pipettePending_ = false;
+        setStatus("Pipette désarmée");
         return;
     }
     // Mode scène (8.5) : Échap annule la saisie en cours puis désarme l'outil.

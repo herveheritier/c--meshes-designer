@@ -113,6 +113,17 @@ public:
     // 7.8 : une seule étape annulable par salve de molette sur le bouton
     // « Opacité du plan actif » (réarmée quand la molette s'arrête).
     bool opacUndoPushed_ = false;
+
+    // --- Pipette de couleur (6.5) ---
+    // Armée depuis le paquet Outils : un clic gauche sur le canvas prélève la
+    // couleur affichée à cet endroit (faces, calque d'image, fond…) et la pose
+    // comme couleur de pinceau. L'échantillonnage se fait dans drawScene — la
+    // scène vient d'être dessinée, l'interface pas encore (on lit donc ce qui
+    // est réellement affiché au canvas). Clic droit ou Échap désarme.
+    bool pipetteArmed = false;
+    bool pipettePending_ = false;   // prélèvement demandé (position en attente)
+    Vec2 pipettePos{0, 0};          // position du clic (viewport, pixels logiques)
+    void togglePipette();           // arme / désarme la pipette
     // Sélectionne les éléments du plan actif dont le point de référence
     // (sommet : position, segment : milieu, triangle : centre) satisfait
     // `inside` — partagé entre rectangle (5.1) et lasso (5.10).

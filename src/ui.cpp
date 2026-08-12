@@ -723,12 +723,25 @@ void toolbar(App& app) {
             app.duplicateSelection();
     }
 
-    // --- Paquet Outils : peinture, aligner, rotation, échelle, découpe, formes ---
+    // --- Paquet Outils : peinture, pipette, aligner, rotation, échelle,
+    // découpe, formes ---
     {
-        placePack(packW({bw, bw, bw, bw, bw, bw}));
+        placePack(packW({bw, bw, bw, bw, bw, bw, bw}));
         if (toolBtnIcon("triangle-color", "Peinture : palette de couleurs et pinceau",
                         app.paletteOpen, kGreen, false))
             app.paletteOpen = !app.paletteOpen;
+        ImGui::SameLine();
+        // Pipette (6.5) : prélever la couleur affichée au canvas (faces, image
+        // de fond, couleur du fond…) et la poser comme couleur de pinceau.
+        if (toolBtnIcon("pipette",
+                        app.pipetteArmed
+                            ? "Pipette armée — clic gauche sur le canvas : prélever la "
+                              "couleur affichée · clic droit ou Échap : désarmer"
+                            : "Pipette (6.5) : prélever une couleur affichée au canvas "
+                              "(faces, calque d'image, fond…) et en faire la couleur "
+                              "du pinceau",
+                        app.pipetteArmed, kGreen, false))
+            app.togglePipette();
         ImGui::SameLine();
         if (toolBtnIcon("align", "Aligner / répartir la sélection", app.alignOpen, kGreen,
                         false))
@@ -1360,10 +1373,18 @@ void viewport(App& app) {
         dl->AddRect(a, b, IM_COL32(140, 190, 255, 220));
     }
 
-    // Curseur : croix de visée ou disque de peinture.
+    // Curseur : croix de visée, disque de peinture ou cible de pipette.
     if (app.viewportHovered && app.preview == PreviewMode::Off && !app.kiosk) {
         const ImVec2 mp = io.MousePos;
-        if (app.brushArmed) {
+        if (app.pipetteArmed) {
+            // Pipette : petite cible (cercle + croix) pour viser précisément.
+            dl->AddCircle(mp, 9.0f, IM_COL32(255, 255, 255, 210));
+            dl->AddLine(ImVec2(mp.x - 5, mp.y), ImVec2(mp.x + 5, mp.y),
+                        IM_COL32(255, 255, 255, 210));
+            dl->AddLine(ImVec2(mp.x, mp.y - 5), ImVec2(mp.x, mp.y + 5),
+                        IM_COL32(255, 255, 255, 210));
+            ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+        } else if (app.brushArmed) {
             const Color& c = app.brushColor;
             dl->AddCircleFilled(mp, 8.0f,
                                 IM_COL32((int)(c.r * 255), (int)(c.g * 255),
@@ -1965,6 +1986,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Clic gauche (vide) : poser un point — 3 clics ferment un triangle");
         ImGui::BulletText("Clic gauche (entité) : sélectionner · Maj+clic : basculer");
         ImGui::BulletText("Pinceau : clic gauche peint le triangle survolé — ou tous les triangles sélectionnés (cible « triangle »)");
+        ImGui::BulletText("Pipette (bouton du paquet Outils) : un clic gauche sur le canvas prélève la couleur affichée (faces, calque d'image, fond…) et la pose comme couleur de pinceau · clic droit ou Échap : désarmer");
         ImGui::BulletText("Clic gauche + glisser : rectangle de sélection (ne déplace jamais)");
         ImGui::BulletText("Lasso (bouton du paquet Sélection) : tracer librement autour des éléments à sélectionner d'un coup — sommet par sa position, segment par son milieu, triangle par son centre · Maj au relâchement : ajouter · clic droit ou Échap : désarmer");
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");

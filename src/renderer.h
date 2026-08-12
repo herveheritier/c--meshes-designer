@@ -43,6 +43,10 @@ public:
     int viewportH() const { return vh_; }
     // Pixels RGBA du viewport (bas en haut) — pour l'export PNG.
     std::vector<unsigned char> readPixelsRGBA() const;
+    // Pixel unique (pipette, 6.5) : (px, py) en coordonnées relatives au
+    // viewport, origine en HAUT à gauche (comme l'écran) — le Y est renversé
+    // pour le framebuffer. Retourne false hors du viewport.
+    bool readPixel(int px, int py, Color& out) const;
 
 private:
     bool compileProgram();
