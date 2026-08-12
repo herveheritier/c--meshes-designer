@@ -103,6 +103,12 @@ public:
 
     // --- Plans (7) ---
     bool allColors = false;             // mode « toutes couleurs » (7.6), conservé
+    bool wireframe = false;             // mode filaire (7.6) : arêtes seules, sans
+                                        // remplissage — 2e état du bouton d'affichage
+                                        // (exclusifs : cycleFillMode n'en active
+                                        // qu'un à la fois ; un prefs.json édité à
+                                        // la main avec les deux à vrai se guérit
+                                        // au clic suivant)
     bool kiosk = false;                 // mode kiosque / couverture (7.5)
     bool kioskFresh = false;            // 1re frame de kiosque : ignore le clic d'activation
     float kioskX = -1.0f;               // position du pointeur dans le viewport (kiosque)
@@ -283,6 +289,9 @@ public:
     void cycleTarget();
     void cycleReticle();
     void cyclePreview();
+    // Cycle le mode d'affichage des plans (7.6) : normal → toutes couleurs →
+    // filaire → normal.
+    void cycleFillMode();
     void exitPreview();
     void startShapeTool(Tool t);
 

@@ -751,6 +751,7 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     v.obj.emplace_back("locations", loc);
     v.obj.emplace_back("importMode", JVal::num(p.importMode));
     v.obj.emplace_back("allColors", JVal::boolean(p.allColors));
+    v.obj.emplace_back("wireframe", JVal::boolean(p.wireframe));
     v.obj.emplace_back("snapOn", JVal::boolean(p.snapOn));
     JVal bg = JVal::array();
     bg.arr.push_back(JVal::num(p.bgColor.r));
@@ -793,6 +794,8 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
     if (root.getNum("importMode", d)) out.importMode = (int)d;
     bool ac = out.allColors;
     if (root.getBool("allColors", ac)) out.allColors = ac;
+    bool wf = out.wireframe;
+    if (root.getBool("wireframe", wf)) out.wireframe = wf;
     bool sn = out.snapOn;
     if (root.getBool("snapOn", sn)) out.snapOn = sn;
     // Couleur de fond du canvas (8.5) : [r,g,b], canaux bornés 0..1 ; absente

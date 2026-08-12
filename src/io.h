@@ -75,6 +75,7 @@ struct PrefsData {
     std::vector<std::string> locations;   // emplacements d'enregistrement (20 max)
     int importMode = 0;                   // 0 = remplacer, 1 = fusionner
     bool allColors = false;               // mode « toutes couleurs » conservé (7.6)
+    bool wireframe = false;               // mode filaire conservé (7.6) : arêtes seules
     bool snapOn = true;                   // aimantation sur la grille (indépendante de l'affichage)
     Color bgColor = kBgDefault;           // couleur de fond du canvas (8.5)
     int sceneTool = 0;                    // outil du mode Scène armé : 0 = aucun, 1 = saisir,

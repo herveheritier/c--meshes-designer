@@ -603,9 +603,19 @@ void toolbar(App& app) {
                         app.preview != PreviewMode::Off, kAmber, false))
             app.cyclePreview();
         ImGui::SameLine();
-        if (toolBtnIcon("show-all-fills", "Toutes couleurs : remplir tous les plans pendant l'édition (7.6)",
-                        app.allColors, kGreen, false))
-            app.allColors = !app.allColors;
+        // Affichage des plans (7.6) : clic = cycle normal → toutes couleurs →
+        // filaire → normal. L'icône et l'infobulle suivent l'état courant.
+        if (toolBtnIcon(app.wireframe ? "wireframe" : "show-all-fills",
+                        app.wireframe
+                            ? "Mode filaire : arêtes seules, sans remplissage — "
+                              "clic : revenir au rendu normal (7.6)"
+                            : app.allColors
+                                ? "Toutes couleurs : remplir tous les plans pendant "
+                                  "l'édition — clic : mode filaire (7.6)"
+                                : "Rendu normal : seul le plan actif est rempli — "
+                                  "clic : toutes couleurs (7.6)",
+                        app.allColors || app.wireframe, kGreen, false))
+            app.cycleFillMode();
         ImGui::SameLine();
         pill("##pillfps", fpsbuf, app.fpsPillGreen ? kGreen : kAmber, "fps",
              ImGui::CalcTextSize("120 fps").x + 18.0f + 20.0f);

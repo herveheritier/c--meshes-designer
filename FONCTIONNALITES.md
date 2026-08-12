@@ -119,7 +119,7 @@ l'action n'est pas disponible.
 Paquets, dans l'ordre :
 
 1. **Canevas** : grille, aimant, pas de grille, réticule.
-2. **Affichage** : prévisualiser, mode « toutes couleurs », images par seconde.
+2. **Affichage** : prévisualiser, modes « toutes couleurs » / « filaire », images par seconde.
 3. **Vue** : tout afficher, cadrer la sélection, outil mesure.
 4. **Sélection** : cible (sommet / segment / triangle), tout sélectionner (clic
    droit : menu), compteur de sélection (toujours visible).
@@ -423,14 +423,23 @@ vertical virtuel (effet « kiosque » / cover-flow) :
 - **Échap** ou **clic droit** sortent du mode sans changer de plan ;
 - aucune édition n'est possible dans ce mode ; la barre d'outils est masquée (sauf le bouton du mode).
 
-### 7.6 Mode d'affichage « toutes couleurs »
+### 7.6 Modes d'affichage « toutes couleurs » et « filaire »
 
-Un mode d'affichage (bouton dédié, sans raccourci) montre **tous les plans**
-remplis de leurs couleurs de triangles **pendant l'édition** (le plan actif garde
-son rendu d'édition complet ; les plans inactifs gardent leurs lignes en pointillés
-mais sont remplis). Un re-clic revient au rendu standard. C'est un mode
-d'affichage pur : l'édition est inchangée, et le mode est conservé d'une session
-à l'autre.
+Le bouton d'affichage des plans (sans raccourci) fait défiler **trois modes** :
+
+1. **Rendu normal** : seul le plan actif est rempli de ses couleurs ;
+2. **Toutes couleurs** : tous les plans sont remplis de leurs couleurs de
+   triangles **pendant l'édition** (le plan actif garde son rendu d'édition
+   complet ; les plans inactifs gardent leurs lignes en pointillés mais sont
+   remplis) ;
+3. **Filaire** : aucun remplissage — seules les **arêtes** de tous les plans
+   restent visibles (pleines pour le plan actif, en pointillés pour les
+   inactifs), pour visualiser la structure de la scène à travers les plans
+   superposés.
+
+L'icône et l'infobulle du bouton suivent le mode courant. Ce sont des modes
+d'affichage purs : l'édition est inchangée, et le mode est conservé d'une
+session à l'autre.
 
 ---
 

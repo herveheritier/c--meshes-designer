@@ -679,14 +679,17 @@ static void testSpecFormats() {
         CHECK((int)br.size() == 1 && (int)br[0].planes[0].vertices.size() == 1);
     }
 
-    // Préférences : mode « toutes couleurs » conservé.
+    // Préférences : modes d'affichage « toutes couleurs » et « filaire »
+    // (7.6) conservés.
     {
         PrefsData p;
         p.allColors = true;
+        p.wireframe = true;
         CHECK(savePrefsJson(p, "/tmp/meshtest_prefs2.json").ok);
         PrefsData back;
         CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs2.json").ok);
         CHECK(back.allColors);
+        CHECK(back.wireframe);
     }
 
     // Préférences : compatibilité ascendante — un fichier ANCIEN (sans les
@@ -699,6 +702,7 @@ static void testSpecFormats() {
         CHECK(loadPrefsJson(back, "/tmp/meshtest_prefs_legacy.json").ok);
         CHECK(back.allColors);
         CHECK(!back.snapOn);
+        CHECK(!back.wireframe);  // champ absent dans un fichier ancien → défaut
         CHECK(back.bgColor.r == kBgDefault.r && back.bgColor.g == kBgDefault.g &&
               back.bgColor.b == kBgDefault.b);
         CHECK(back.sceneTool == 0);
@@ -756,7 +760,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 70);  // toutes les icônes du dossier assets/ (2 ajoutées : ordre z)
+    CHECK(n == 71);  // toutes les icônes du dossier assets/ (1 ajoutée : filaire)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux

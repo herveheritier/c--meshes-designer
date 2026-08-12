@@ -2047,6 +2047,23 @@ void App::cyclePreview() {
     }
 }
 
+// Cycle le mode d'affichage des plans (7.6) : normal (seul le plan actif est
+// rempli) → toutes couleurs (tous les plans remplis) → filaire (arêtes seules,
+// aucun remplissage) → normal.
+void App::cycleFillMode() {
+    if (!allColors && !wireframe) {
+        allColors = true;
+        setStatus("Toutes couleurs : remplir tous les plans pendant l'édition (7.6)");
+    } else if (allColors) {
+        allColors = false;
+        wireframe = true;
+        setStatus("Mode filaire : arêtes seules, sans remplissage (7.6)");
+    } else {
+        wireframe = false;
+        setStatus("Rendu normal : seul le plan actif est rempli (7.6)");
+    }
+}
+
 void App::toggleMeasure() {
     measureActive = !measureActive;
     if (measureActive) {
@@ -2658,6 +2675,7 @@ void App::savePrefsFile() {
     p.locations = saveLocations;
     p.importMode = dlgImportReplace ? 0 : 1;
     p.allColors = allColors;
+    p.wireframe = wireframe;
     p.snapOn = snapOn;
     p.bgColor = bgColor;
     p.sceneTool = (int)sceneTool;
@@ -2693,6 +2711,7 @@ void App::loadPrefsFile() {
     consolePos = {p.consoleX, p.consoleY};
     consoleSize = {p.consoleW, p.consoleH};
     allColors = p.allColors;
+    wireframe = p.wireframe;
     snapOn = p.snapOn;
     // Mode Scène (8.5) : la couleur de fond et l'outil armé sont mémorisés
     // (valeur bornée ; un outil inconnu = désarmé).
@@ -3180,9 +3199,11 @@ void App::drawMeshGeometry() {
 
 // Rendu d'un plan : remplissage (actif, ou tous si « toutes couleurs »),
 // arêtes pleines (actif) ou en pointillés (inactif), points atténués (inactif).
+// En mode filaire (7.6), aucun remplissage : seules les arêtes restent, pour
+// toutes les faces de tous les plans — la structure reste lisible à travers.
 void App::drawPlane(const Mesh2D& p, bool isActive) {
     // Faces.
-    if (isActive || allColors) {
+    if (!wireframe && (isActive || allColors)) {
         for (const Face& f : p.faces) {
             if ((int)f.verts.size() < 3) continue;
             std::vector<Vec2> pts;

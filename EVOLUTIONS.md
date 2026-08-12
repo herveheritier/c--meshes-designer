@@ -23,7 +23,6 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## A réaliser
 
-- [ ] ajouter fonctionnalité au bouton toutes les couleurs : mode filaire
 - [ ] sélection au lasso : entourer d'un tracé libre (ou d'un rectangle de
   sélection) plusieurs sommets, segments ou faces d'un coup, en plus de la
   sélection clic par clic.
@@ -31,9 +30,16 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
   (les faces ont déjà leur propre opacité), pour superposer des plans en les
   laissant visibles les uns à travers les autres.
 - [ ] ajouter un réticule supplémentaire composé de la projection symétrique des axes 
+- [ ] pouvoir mettre un image en arrière plan pouvant servir de calque ; l'image doit pouvoir être réorientée, déplacée, déformée
+- [ ] pouvoir récupérer une couleur avec une pipette (si possible partout sur l'écran même hors fenêtre)
 
 ## Effectuées
 
+- 2026-08-12 · Mode filaire (7.6) : le bouton d'affichage des plans fait
+  désormais défiler trois modes — rendu normal, toutes couleurs, puis filaire
+  (arêtes seules, sans remplissage, pour voir la structure de toute la scène à
+  travers les plans superposés). L'icône et l'infobulle du bouton suivent le
+  mode courant, qui est conservé d'une session à l'autre.
 - 2026-08-12 · `8d12b9f` — Kiosque : la forme de chaque plan est agrandie au maximum dans
   sa carte sans jamais déborder (~80 % de la surface pour les proportions
   proches de la carte, un peu moins pour les formes « rondes ») — la taille
