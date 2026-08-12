@@ -854,7 +854,9 @@ void App::drawPreviewGeometry() {
     }
 
     // « Plans » (9.3.2) : tous les plans remplis, dans l'ordre d'empilement
-    // (le plan d'indice le plus élevé recouvre les précédents).
+    // (le plan d'indice le plus élevé recouvre les précédents). Aucun contour
+    // n'est tracé : la vue de composition montre uniquement les surfaces, sans
+    // les arêtes internes des triangles ni le périmètre des plans.
     for (int i = 0; i < n; ++i) {
         const Mesh2D& p = scene.planes[i];
         for (const Face& f : p.faces) {
@@ -871,14 +873,6 @@ void App::drawPreviewGeometry() {
             c.a *= p.opacity;  // opacité du plan (7.8)
             renderer.drawTriangles(triPts, c);
         }
-        std::vector<Vec2> segs;
-        const auto es = p.edges();
-        segs.reserve(es.size() * 2);
-        for (const auto& e : es) {
-            segs.push_back(p.vertices[e.first]);
-            segs.push_back(p.vertices[e.second]);
-        }
-        renderer.drawLines(segs, kEdgeDim);
     }
 }
 

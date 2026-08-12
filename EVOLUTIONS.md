@@ -26,6 +26,11 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-12 (à venir) - Prévisualisation « Plans » sans contours : dans le
+  mode œil, l'état « tous les plans » rend les plans remplis de leurs couleurs
+  sans tracer de contours — ni périmètre des plans, ni arêtes internes des
+  triangles — pour une vue de composition épurée (l'état « aperçu simple »
+  conserve ses contours).
 - 2026-08-12 (a4b3715) - Barre d'outils repliable par paquet : chaque paquet
   de boutons possède un bouton dédié qui l'ouvre ou le ferme — le bouton porte
   un **symbole SVG identifiant le sujet du paquet** (grille, œil, cible,

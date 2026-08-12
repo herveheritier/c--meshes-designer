@@ -717,7 +717,7 @@ Le mode **Prévisualiser** (bouton œil ou touche `P`) masque tous les outils
 géométrie. Il fait défiler **trois états** :
 
 1. **Aperçu simple** : la scène telle quelle (plan actif rempli, autres en contours).
-2. **Plans** : **tous** les plans rendus remplis de leurs couleurs, **dans leur ordre** (le plan le plus haut recouvre les précédents) — vue de composition de la scène.
+2. **Plans** : **tous** les plans rendus remplis de leurs couleurs, **dans leur ordre** (le plan le plus haut recouvre les précédents) — vue de composition de la scène, **sans contours** (ni arêtes internes des triangles, ni périmètre des plans).
 3. **Retour à l'édition**.
 
 En prévisualisation : la **molette** zoome toujours, le **clic du milieu** déplace
