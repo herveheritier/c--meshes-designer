@@ -1388,6 +1388,37 @@ void viewport(App& app) {
         dl->AddRect(a, b, IM_COL32(140, 190, 255, 220));
     }
 
+    // Poignées du mode Échelle du calque (7.7) : 8 poignées — milieux des
+    // arêtes gauche/droite = axe X (largeur), haut/bas = axe Y (hauteur), et
+    // coins = les deux axes. La poignée survolée est mise en évidence ; saisie
+    // sur une poignée = échelle ancrée sur l'arête / le coin opposé. Seulement
+    // si le calque est visible (le rayon de survol suit celui de la saisie).
+    if (app.layerTool == LayerTool::Scale && app.preview == PreviewMode::Off &&
+        app.scene.image.path.size() > 0 && app.scene.image.visible) {
+        std::vector<Vec2> pts;
+        app.layerHandlePoints(pts);
+        const ImVec2 mp = io.MousePos;
+        for (int i = 0; i < (int)pts.size(); ++i) {
+            const Vec2 sp = app.camera.worldToScreen(pts[i], app.viewportVec2());
+            const ImVec2 hp(pos.x + sp.x, pos.y + sp.y);
+            const bool hover = std::sqrt((mp.x - hp.x) * (mp.x - hp.x) +
+                                         (mp.y - hp.y) * (mp.y - hp.y)) < 12.0f;
+            // X (bords gauche/droit) cyan, Y (haut/bas) ambre, coins blancs.
+            ImU32 col;
+            if (i < 2)
+                col = hover ? IM_COL32(120, 235, 255, 255) : IM_COL32(120, 235, 255, 190);
+            else if (i < 4)
+                col = hover ? IM_COL32(255, 205, 120, 255) : IM_COL32(255, 205, 120, 190);
+            else
+                col = hover ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 190);
+            const float s = hover ? 7.0f : 5.5f;
+            dl->AddRectFilled(ImVec2(hp.x - s, hp.y - s), ImVec2(hp.x + s, hp.y + s), col);
+            if (hover)
+                dl->AddRect(ImVec2(hp.x - s - 2, hp.y - s - 2),
+                            ImVec2(hp.x + s + 2, hp.y + s + 2), IM_COL32(255, 255, 255, 120));
+        }
+    }
+
     // Curseur : croix de visée, disque de peinture ou cible de pipette.
     if (app.viewportHovered && app.preview == PreviewMode::Off && !app.kiosk) {
         const ImVec2 mp = io.MousePos;
@@ -1660,8 +1691,10 @@ void layerPopup(App& app) {
                     app.layerTool == LayerTool::Rotate, kGreen, false, "Pivoter", bw))
         app.toggleLayerTool(LayerTool::Rotate);
     ImGui::SameLine();
-    if (toolBtnIcon("scale", "Redimensionner le calque — vertical : taille · "
-                    "horizontal : largeur · Maj+horizontal : hauteur",
+    if (toolBtnIcon("scale", "Redimensionner le calque — poignées au canvas : "
+                    "bords gauche/droit = largeur (X), haut/bas = hauteur (Y), "
+                    "coins = les deux axes ; sinon vertical : taille · horizontal : "
+                    "largeur · Maj+horizontal : hauteur",
                     app.layerTool == LayerTool::Scale, kGreen, false, "Échelle", bw))
         app.toggleLayerTool(LayerTool::Scale);
     ImGui::Separator();

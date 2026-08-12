@@ -30,6 +30,9 @@ enum class PreviewMode { Off, Simple, Planes };
 enum class SceneTool { None, Grab, Rotate, Scale };
 // Calque d'image de fond (7.7) : manipulation de l'image à la souris.
 enum class LayerTool { None, Move, Rotate, Scale };
+// Poignées du mode Échelle du calque : axe X (bords gauche/droit), axe Y
+// (bords haut/bas) ou les deux axes (coins) — l'arête/coin opposé reste fixe.
+enum class LayerHandle { None, X, Y, Both };
 
 // --- Drag en cours ---
 enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale,
@@ -55,6 +58,10 @@ struct Drag {
     // annuler proprement et détecter un glisser sans effet).
     Vec2 layerStartCenter{0, 0};
     float layerStartRot = 0.0f, layerStartSx = 1.0f, layerStartSy = 1.0f;
+    // Échelle du calque par poignée : poignée saisie et position locale de
+    // cette poignée (±hw, ±hh dans le repère de départ) pour ancrer l'échelle.
+    LayerHandle layerHandle = LayerHandle::None;
+    Vec2 layerHandleLocal{0, 0};
     // Tracé de forme : 0 prêt · 1 ancre posée · 2 verrouillé (étoile/anneau)
     int shapeStage = 0;
     Vec2 shapeAnchor{0, 0};             // ancre (centre ou coin) en monde
@@ -399,6 +406,10 @@ public:
     void removeImageLayer();
     // Réajuste la taille du calque à ~la moitié de la vue (une étape annulable).
     void fitLayerToView();
+    // Poignées du mode Échelle : les 8 points monde des poignées du calque
+    // (4 milieux d'arêtes : gauche/droite = X, haut/bas = Y ; 4 coins = Both),
+    // dans le repère courant — pour l'affichage (ui.cpp) et la saisie.
+    void layerHandlePoints(std::vector<Vec2>& out) const;
     void endSceneDrag();
     bool isSceneDragging() const {
         return drag_.kind == DragKind::SceneGrab || drag_.kind == DragKind::SceneRotate ||

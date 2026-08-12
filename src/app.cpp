@@ -2149,9 +2149,10 @@ void App::toggleLayerTool(LayerTool t) {
                       "clic droit ou Échap : désarmer");
             break;
         case LayerTool::Scale:
-            setStatus("Redimensionner le calque — glisser vertical : taille · "
-                      "horizontal : largeur · Maj+horizontal : hauteur · clic droit "
-                      "ou Échap : désarmer");
+            setStatus("Redimensionner le calque — poignées : bords gauche/droit = "
+                      "largeur (X), haut/bas = hauteur (Y), coins = les deux axes "
+                      "· glisser ailleurs : vertical = taille, horizontal = largeur, "
+                      "Maj+horizontal = hauteur · clic droit ou Échap : désarmer");
             break;
         default:
             // Désarmement par clic droit au canvas (t == None) : retour d'état.
@@ -2177,7 +2178,41 @@ void App::beginLayerDrag(const Vec2& world, const Vec2& screen) {
     switch (layerTool) {
         case LayerTool::Move: drag_.kind = DragKind::LayerMove; break;
         case LayerTool::Rotate: drag_.kind = DragKind::LayerRotate; break;
-        case LayerTool::Scale: drag_.kind = DragKind::LayerScale; break;
+        case LayerTool::Scale: {
+            drag_.kind = DragKind::LayerScale;
+            // Poignées : si le clic tombe sur l'une des 8 poignées (milieux
+            // d'arêtes = X / Y, coins = les deux axes), la saisie devient une
+            // échelle ancrée sur l'arête / le coin opposé ; sinon, geste libre.
+            drag_.layerHandle = LayerHandle::None;
+            std::vector<Vec2> pts;
+            if (scene.image.visible) layerHandlePoints(pts);
+            const Vec2 vps = viewportVec2();
+            float best = 12.0f;  // rayon de saisie (px écran)
+            int bestIdx = -1;
+            for (int i = 0; i < (int)pts.size(); ++i) {
+                const float d = distance(camera.worldToScreen(pts[i], vps), screen);
+                if (d < best) {
+                    best = d;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx >= 0) {
+                // Correspondance index → (poignée, signe local) : les 4
+                // premiers points sont les milieux d'arêtes (X, X, Y, Y), les
+                // 4 suivants les coins (Both) — voir layerHandlePoints.
+                static const LayerHandle kKind[8] = {
+                    LayerHandle::X, LayerHandle::X, LayerHandle::Y, LayerHandle::Y,
+                    LayerHandle::Both, LayerHandle::Both, LayerHandle::Both,
+                    LayerHandle::Both};
+                static const float kSx[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
+                static const float kSy[8] = {0, 0, -1, 1, -1, -1, 1, 1};
+                drag_.layerHandle = kKind[bestIdx];
+                drag_.layerHandleLocal = {
+                    kSx[bestIdx] * scene.image.w * drag_.layerStartSx * 0.5f,
+                    kSy[bestIdx] * scene.image.h * drag_.layerStartSy * 0.5f};
+            }
+            break;
+        }
         default: break;
     }
 }
@@ -2202,6 +2237,33 @@ void App::applyLayerDrag(const Vec2& world, const Vec2& screen) {
             break;
         }
         case LayerTool::Scale: {
+            if (drag_.layerHandle != LayerHandle::None) {
+                // Échelle ancrée par poignée : l'arête / le coin opposé reste
+                // fixe, la poignée saisie suit le curseur (le long des axes
+                // locaux du calque, rotation conservée).
+                const float cs = std::cos(il.rotation);
+                const float sn = std::sin(il.rotation);
+                const Vec2 u{cs, sn}, v{-sn, cs};
+                const float hx = drag_.layerHandleLocal.x;
+                const float hy = drag_.layerHandleLocal.y;
+                // Ancre = point opposé de la poignée (repère de départ).
+                const Vec2 anchor = drag_.layerStartCenter +
+                                    Vec2{-cs * hx + sn * hy, -sn * hx - cs * hy};
+                const float sx = (hx > 0.0f) - (hx < 0.0f);
+                const float sy = (hy > 0.0f) - (hy < 0.0f);
+                const float lx = dot(world - anchor, u);
+                const float ly = dot(world - anchor, v);
+                const float minHw = 1e-4f, minHh = 1e-4f;
+                const float hw0 = il.w * drag_.layerStartSx * 0.5f;
+                const float hh0 = il.h * drag_.layerStartSy * 0.5f;
+                const float newHw = (sx != 0.0f) ? std::max(lx * sx * 0.5f, minHw) : hw0;
+                const float newHh = (sy != 0.0f) ? std::max(ly * sy * 0.5f, minHh) : hh0;
+                il.scaleX = std::clamp(2.0f * newHw / (float)il.w, 1e-4f, 1e5f);
+                il.scaleY = std::clamp(2.0f * newHh / (float)il.h, 1e-4f, 1e5f);
+                il.center = anchor + Vec2{cs * sx * newHw - sn * sy * newHh,
+                                          sn * sx * newHw + cs * sy * newHh};
+                break;
+            }
             const float k =
                 std::exp((screen.y - drag_.sceneStartScreen.y) * kSceneScalePerPx);
             const float dx =
@@ -2310,6 +2372,28 @@ void App::fitLayerToView() {
     scene.image.center = {camera.cx, camera.cy};
     dirty = true;
     setStatus("Calque ajusté à la vue");
+}
+
+void App::layerHandlePoints(std::vector<Vec2>& out) const {
+    out.clear();
+    const ImageLayer& il = scene.image;
+    if (il.path.empty() || il.w <= 0 || il.h <= 0) return;
+    const float hw = il.w * il.scaleX * 0.5f;
+    const float hh = il.h * il.scaleY * 0.5f;
+    const float cs = std::cos(il.rotation);
+    const float sn = std::sin(il.rotation);
+    const Vec2 c = il.center;
+    // Rotation locale → monde : (x,y) ↦ c + (cs·x − sn·y, sn·x + cs·y).
+    // Milieux d'arêtes : gauche / droite (X) puis bas / haut (Y), puis les 4
+    // coins (Both) — l'ordre est celui attendu par beginLayerDrag (kSx/kSy).
+    out.push_back({c.x - cs * hw, c.y - sn * hw});                        // (-hw, 0)
+    out.push_back({c.x + cs * hw, c.y + sn * hw});                        // (+hw, 0)
+    out.push_back({c.x + sn * hh, c.y - cs * hh});                        // (0, -hh)
+    out.push_back({c.x - sn * hh, c.y + cs * hh});                        // (0, +hh)
+    out.push_back({c.x - cs * hw + sn * hh, c.y - sn * hw - cs * hh});    // (-hw, -hh)
+    out.push_back({c.x + cs * hw + sn * hh, c.y + sn * hw - cs * hh});    // (+hw, -hh)
+    out.push_back({c.x - cs * hw - sn * hh, c.y - sn * hw + cs * hh});    // (-hw, +hh)
+    out.push_back({c.x + cs * hw - sn * hh, c.y + sn * hw + cs * hh});    // (+hw, +hh)
 }
 
 // ---------------------------------------------------------------------------

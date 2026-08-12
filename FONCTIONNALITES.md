@@ -500,8 +500,13 @@ Le popup du bouton permet de :
   - **Déplacer** : clic gauche + glisser ;
   - **Pivoter** : clic gauche + glisser (le point saisi suit le curseur autour
     du centre) ;
-  - **Échelle** : glisser vertical = taille (proportionnel), horizontal =
-    largeur (déformation), Maj+horizontal = hauteur ;
+  - **Échelle** : **8 poignées** apparaissent sur le calque — les milieux des
+    arêtes **gauche/droite = axe X** (largeur seule), **haut/bas = axe Y**
+    (hauteur seule), et les **coins = les deux axes** à la fois ; la saisie
+    d'une poignée redimensionne en gardant **fixe l'arête / le coin opposé**
+    (rotation conservée). Saisie ailleurs : glisser vertical = taille
+    (proportionnel), horizontal = largeur (déformation), Maj+horizontal =
+    hauteur ;
 - **Ajuster à la vue** : recentre et redimensionne le calque à ~la moitié de la
   vue ;
 - **Retirer le calque**.
