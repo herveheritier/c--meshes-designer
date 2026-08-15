@@ -26,7 +26,7 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
-- 2026-08-15 (à venir) - Opérations ensemblistes (5.12) étendues aux cibles
+- 2026-08-15 (1c52185) - Opérations ensemblistes (5.12) étendues aux cibles
   **sommet** et **segment** : « Mémoriser A / B » capture les **faces formées
   par la sélection courante** — cible triangle : les faces sélectionnées ;
   cible **sommet** : les faces dont **tous les sommets** sont sélectionnés (les
