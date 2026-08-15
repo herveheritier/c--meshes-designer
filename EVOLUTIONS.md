@@ -26,6 +26,17 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-15 (à venir) - Opérations ensemblistes (5.12) étendues aux cibles
+  **sommet** et **segment** : « Mémoriser A / B » capture les **faces formées
+  par la sélection courante** — cible triangle : les faces sélectionnées ;
+  cible **sommet** : les faces dont **tous les sommets** sont sélectionnés (les
+  4 coins d'un rectangle forment ses triangles) ; cible **segment** : les faces
+  dont **toutes les arêtes** sont sélectionnées (le pourtour d'un rectangle
+  triangulé doit inclure sa diagonale interne). Une sélection qui ne forme
+  aucune face ne mémorise rien (message d'aide). L'opération reste annulable et
+  le résultat **reste sélectionné dans la cible active** (triangle : ses faces,
+  sommet : ses sommets, segment : ses arêtes — pas de bascule forcée en cible
+  triangle) ; les sommets orphelins des faces remplacées sont retirés.
 - 2026-08-13 (6f03df3) - Clic cyclique dans la pile de faces superposées
   (cible « triangle ») : quand plusieurs faces se chevauchent au même endroit,
   chaque clic au même endroit sélectionne la face **suivante en dessous**

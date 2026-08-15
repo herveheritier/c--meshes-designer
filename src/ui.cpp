@@ -747,17 +747,28 @@ void toolbar(App& app) {
             : app.selMode == SelMode::Edge ? !app.selEdges.empty()
                                            : !app.selVerts.empty();
         // Opérations ensemblistes (5.12) : Mémoriser A / Mémoriser B capturent
-        // chacun la sélection courante (cible triangle) comme un ensemble ; le
-        // bouton « Booléennes » ouvre le popup des opérations (union,
-        // intersection, différence, symétrique) entre les deux ensembles.
-        const bool faceSel = app.selMode == SelMode::Face && !app.selFaces.empty();
+        // chacun les FACES formées par la sélection courante (cible triangle :
+        // faces sélectionnées · sommet : faces dont tous les sommets sont
+        // sélectionnés · segment : faces dont toutes les arêtes sont
+        // sélectionnées) ; le bouton « Booléennes » ouvre le popup des
+        // opérations (union, intersection, différence, symétrique).
+        const bool anySel =
+            app.selMode == SelMode::Face   ? !app.selFaces.empty()
+            : app.selMode == SelMode::Edge ? !app.selEdges.empty()
+                                           : !app.selVerts.empty();
         const std::string boolTip =
-            "Opérations ensemblistes (5.12) : deux ensembles de triangles A et B,\n"
-            "chacun mémorisé depuis la sélection courante (cible triangle) — "
-            "union (A∪B), intersection (A∩B), différence (A−B), symétrique (A△B)\n"
-            "· dans la zone des deux ensembles, seule la géométrie du résultat est "
-            "conservée (le reste du plan est intact) · le résultat devient la "
-            "sélection triangle du plan actif";
+            "Opérations ensemblistes (5.12) : deux ensembles de faces A et B, "
+            "chacun mémorisé depuis la sélection courante — les faces formées "
+            "par la sélection : cible triangle = faces sélectionnées, cible "
+            "sommet = faces dont TOUS les sommets sont sélectionnés (4 coins "
+            "d'un rectangle → ses triangles), cible segment = faces dont TOUTES "
+            "les arêtes sont sélectionnées (le pourtour d'un rectangle doit "
+            "inclure sa diagonale interne) — union (A∪B), intersection (A∩B), "
+            "différence (A−B), symétrique (A△B) · dans la zone des deux "
+            "ensembles, seule la géométrie du résultat est conservée (le reste "
+            "du plan est intact) · le résultat reste sélectionné dans la cible "
+            "active (triangle : ses faces · sommet : ses sommets · segment : "
+            "ses arêtes)";
         if (packToggle(kPackSelection, "selection-mode", "Sélection",
                        "cible, tout sélectionner, chaînée, lasso, booléennes, compteur",
                        packW({toolBtnWidth(targetLabel), bw, bw, bw,
@@ -824,21 +835,24 @@ void toolbar(App& app) {
                              !linkedEnabled))
                 app.selectLinked();
             // Opérations ensemblistes (5.12) : mémoriser l'ensemble A puis
-            // l'ensemble B (chacun = la sélection courante, cible triangle), puis
-            // appliquer une opération entre eux. Grisé hors cible triangle ou sans
-            // sélection (rien à capturer — convention « actions indisponibles »).
+            // l'ensemble B (chacun = les faces formées par la sélection courante),
+            // puis appliquer une opération entre eux. Grisé sans sélection (rien
+            // à capturer — convention « actions indisponibles »).
             ImGui::SameLine();
             if (toolBtnIcon(
                     "set-a",
                     app.boolSetValid(0)
                         ? ("Ensemble A mémorisé : " +
                            std::to_string(app.boolSetCount(0)) +
-                           " triangle(s) — re-clic : remplacer par la sélection "
+                           " face(s) — re-clic : remplacer par la sélection "
                            "courante").c_str()
-                        : "Mémoriser l'ensemble A = la sélection courante (cible "
-                          "triangle) · puis mémoriser B et choisir une opération "
-                          "(bouton « Booléennes »)",
-                    app.boolSetValid(0), kGreen, !faceSel, "A"))
+                        : "Mémoriser l'ensemble A = les faces formées par la "
+                          "sélection courante (cible triangle : faces "
+                          "sélectionnées · sommet : tous les sommets d'un "
+                          "polygone · segment : toutes ses arêtes) · puis "
+                          "mémoriser B et choisir une opération (bouton « "
+                          "Booléennes »)",
+                    app.boolSetValid(0), kGreen, !anySel, "A"))
                 app.memorizeBoolSet(0);
             ImGui::SameLine();
             if (toolBtnIcon(
@@ -846,12 +860,14 @@ void toolbar(App& app) {
                     app.boolSetValid(1)
                         ? ("Ensemble B mémorisé : " +
                            std::to_string(app.boolSetCount(1)) +
-                           " triangle(s) — re-clic : remplacer par la sélection "
+                           " face(s) — re-clic : remplacer par la sélection "
                            "courante").c_str()
-                        : "Mémoriser l'ensemble B = la sélection courante (cible "
-                          "triangle) · puis choisir une opération (bouton « "
-                          "Booléennes »)",
-                    app.boolSetValid(1), kGreen, !faceSel, "B"))
+                        : "Mémoriser l'ensemble B = les faces formées par la "
+                          "sélection courante (cible triangle : faces "
+                          "sélectionnées · sommet : tous les sommets d'un "
+                          "polygone · segment : toutes ses arêtes) · puis "
+                          "choisir une opération (bouton « Booléennes »)",
+                    app.boolSetValid(1), kGreen, !anySel, "B"))
                 app.memorizeBoolSet(1);
             ImGui::SameLine();
             // Popup des opérations : union / intersection / différence /
@@ -861,7 +877,7 @@ void toolbar(App& app) {
                 ImGui::OpenPopup("##boolmenu");
             if (ImGui::BeginPopup("##boolmenu")) {
                 ImGui::TextDisabled("Ensembles mémorisés (plan actif) :");
-                ImGui::TextDisabled("A : %zu triangle(s) · B : %zu triangle(s)",
+                ImGui::TextDisabled("A : %zu face(s) · B : %zu face(s)",
                                     app.boolSetCount(0), app.boolSetCount(1));
                 if (app.boolSetValid(0) && app.boolSetValid(1)) {
                     ImGui::Separator();
@@ -916,7 +932,8 @@ void toolbar(App& app) {
                     }
                 } else {
                     ImGui::TextDisabled("Mémorisez d'abord les deux ensembles A et B "
-                                        "(boutons « A » et « B », cible triangle).");
+                                        "(boutons « A » et « B » — les faces formées "
+                                        "par la sélection).");
                 }
                 ImGui::EndPopup();
             }

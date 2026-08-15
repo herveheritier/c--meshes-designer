@@ -5,19 +5,21 @@
 // (aire + classification par grille), la conservation des couleurs, la
 // sélection résultante, puis l'annulation / le rétablissement.
 //
-// Compilation :
-//   g++ -std=c++17 -O2 -Isrc -Isrc/external -Iexternal -Iexternal/imgui \
-//       -Wall -o build/boolui_test src/boolui_test.cpp src/app.cpp \
-//       src/camera.cpp src/io.cpp src/renderer.cpp src/stb_image_impl.cpp \
-//       src/mesh.cpp src/pngexport.cpp src/svgparse.cpp src/triangulate.cpp \
-//       external/imgui/imgui.cpp external/imgui/imgui_draw.cpp \
-//       external/imgui/imgui_tables.cpp external/imgui/imgui_widgets.cpp \
+// Compilation (ou cible CMake « booluitest ») :
+//   g++ -std=c++17 -O2 -Isrc -Iexternal -Iexternal/imgui -Wall
+//       -o build/boolui_test src/boolui_test.cpp src/app.cpp
+//       src/camera.cpp src/io.cpp src/renderer.cpp src/stb_image_impl.cpp
+//       src/mesh.cpp src/pngexport.cpp src/svgparse.cpp src/triangulate.cpp
+//       external/imgui/imgui.cpp external/imgui/imgui_draw.cpp
+//       external/imgui/imgui_tables.cpp external/imgui/imgui_widgets.cpp
 //       $(pkg-config --cflags --libs sdl2)
 
 #include "app.h"
 #include "triangulate.h"
 
 #include <cstdio>
+#include <functional>
+#include <map>
 #include <vector>
 
 using namespace mesh;
@@ -70,20 +72,26 @@ bool meshCovers(const Mesh2D& m, const Vec2& p) {
 }
 
 // Rectangle → face(s) triangulée(s) dans le plan, peintes de `color`.
-// Retourne les indices des faces créées.
-std::vector<int> addPaintedRect(Mesh2D& m, float x0, float y0, float x1, float y1,
-                                const Color& color) {
+// Retourne les indices des faces créées ET les 4 sommets du rectangle.
+struct BuiltRect {
+    std::vector<int> faces;
+    std::vector<int> verts;
+};
+
+BuiltRect addPaintedRect(Mesh2D& m, float x0, float y0, float x1, float y1,
+                         const Color& color) {
     const int a = m.addVertex({x0, y0});
     const int b = m.addVertex({x1, y0});
     const int c = m.addVertex({x1, y1});
     const int d = m.addVertex({x0, y1});
     const int before = (int)m.faces.size();
     m.addTriangulatedFace({a, b, c, d});
-    std::vector<int> out;
+    BuiltRect out;
+    out.verts = {a, b, c, d};
     for (int i = before; i < (int)m.faces.size(); ++i) {
         m.faces[i].color = color;
         m.faces[i].hasColor = true;
-        out.push_back(i);
+        out.faces.push_back(i);
     }
     return out;
 }
@@ -97,16 +105,57 @@ struct Scenario {
     std::vector<int> facesA;
     std::vector<int> facesB;
     std::vector<int> facesC;
+    std::vector<int> vertsA;  // 4 coins de A (mode sommet)
+    std::vector<int> vertsB;  // 4 coins de B
 };
 
 Scenario buildScenario(App& app) {
     app.newDocument();
     Mesh2D& m = app.scene.planes[0];
     Scenario s;
-    s.facesA = addPaintedRect(m, -2, -1, 2, 1, rgba(1.0f, 0.2f, 0.2f, 0.6f));
-    s.facesB = addPaintedRect(m, 0, -1.5f, 4, 1.5f, rgba(0.2f, 0.2f, 1.0f, 0.6f));
-    s.facesC = addPaintedRect(m, 5, -0.5f, 6, 0.5f, rgba(0.2f, 1.0f, 0.2f, 0.6f));
+    const BuiltRect ra = addPaintedRect(m, -2, -1, 2, 1, rgba(1.0f, 0.2f, 0.2f, 0.6f));
+    const BuiltRect rb = addPaintedRect(m, 0, -1.5f, 4, 1.5f, rgba(0.2f, 0.2f, 1.0f, 0.6f));
+    const BuiltRect rc = addPaintedRect(m, 5, -0.5f, 6, 0.5f, rgba(0.2f, 1.0f, 0.2f, 0.6f));
+    s.facesA = ra.faces;
+    s.facesB = rb.faces;
+    s.facesC = rc.faces;
+    s.vertsA = ra.verts;
+    s.vertsB = rb.verts;
     return s;
+}
+
+// Toutes les arêtes (dédupliquées) des faces données — la sélection complète
+// d'un ensemble en cible segment.
+std::vector<Mesh2D::Edge> facesEdgesOf(const App& app, const std::vector<int>& faces) {
+    const Mesh2D& m = app.scene.activePlane();
+    std::vector<Mesh2D::Edge> out;
+    for (int fi : faces) {
+        const Face& f = m.faces[fi];
+        for (size_t i = 0; i < f.verts.size(); ++i) {
+            const Mesh2D::Edge e = Mesh2D::normEdge(f.verts[i], f.verts[(i + 1) % f.verts.size()]);
+            if (std::find(out.begin(), out.end(), e) == out.end()) out.push_back(e);
+        }
+    }
+    return out;
+}
+
+// Arêtes du POURTOUR des faces (apparaissant dans une seule face) : la
+// diagonale interne d'un rectangle triangulé est partagée par deux faces et
+// retirée — une sélection partielle qui ne forme aucune face entièrement.
+std::vector<Mesh2D::Edge> outlineEdgesOf(const App& app, const std::vector<int>& faces) {
+    const Mesh2D& m = app.scene.activePlane();
+    std::map<Mesh2D::Edge, int> occ;
+    for (int fi : faces) {
+        const Face& f = m.faces[fi];
+        for (size_t i = 0; i < f.verts.size(); ++i) {
+            const Mesh2D::Edge e = Mesh2D::normEdge(f.verts[i], f.verts[(i + 1) % f.verts.size()]);
+            ++occ[e];
+        }
+    }
+    std::vector<Mesh2D::Edge> out;
+    for (const auto& kv : occ)
+        if (kv.second == 1) out.push_back(kv.first);
+    return out;
 }
 
 // Prédicats de région (scénario fixe).
@@ -137,23 +186,42 @@ void checkGrid(const App& app, const char* what, bool (*op)(const Vec2&)) {
     CHECK(bad == 0, "%s : grille — %d point(s) mal couvert(s)", what, bad);
 }
 
-// Test complet d'une opération : mémorise A et B, applique l'opération,
-// vérifie aire / grille / couleurs / sélection, puis annule et rétablit.
+// Sélecteur de la sélection de A ou B (cible triangle / sommet / segment).
+using Selector = std::function<void(App&, const Scenario&)>;
+
+// Faces du résultat : celles dont le centre n'est pas dans C (C reste intact).
+std::vector<int> resultFacesOf(const App& app) {
+    const Mesh2D& m = app.scene.activePlane();
+    std::vector<int> out;
+    for (int fi = 0; fi < (int)m.faces.size(); ++fi) {
+        const Face& f = m.faces[fi];
+        if ((int)f.verts.size() < 3) continue;
+        Vec2 c{0, 0};
+        for (int v : f.verts) c = c + m.vertices[v];
+        c = c / (float)f.verts.size();
+        if (!inC(c)) out.push_back(fi);
+    }
+    return out;
+}
+
+// Test complet d'une opération : mémorise A et B (selon les sélecteurs),
+// applique l'opération, vérifie aire / grille / couleurs / sélection (qui doit
+// rester dans la cible `opMode`), puis annule et rétablit.
 void runOpTest(SetOp op, float expectArea, const char* name,
-               bool (*expect)(const Vec2&)) {
+               bool (*expect)(const Vec2&), SelMode opMode, const Selector& selectA,
+               const Selector& selectB) {
     App app;
     const Scenario s = buildScenario(app);
 
-    // Interface : cible triangle, sélection de A, « Mémoriser A ».
-    app.selMode = SelMode::Face;
-    app.selFaces = s.facesA;
+    // Interface : sélection de A, « Mémoriser A ».
+    selectA(app, s);
     app.memorizeBoolSet(0);
     CHECK(app.boolSetCount(0) == s.facesA.size(), "%s : A mémorisé (%zu)", name,
           app.boolSetCount(0));
     CHECK(app.boolSetCount(1) == 0, "%s : B pas encore mémorisé", name);
 
     // Sélection de B, « Mémoriser B ».
-    app.selFaces = s.facesB;
+    selectB(app, s);
     app.memorizeBoolSet(1);
     CHECK(app.boolSetCount(1) == s.facesB.size(), "%s : B mémorisé (%zu)", name,
           app.boolSetCount(1));
@@ -164,9 +232,9 @@ void runOpTest(SetOp op, float expectArea, const char* name,
     CHECK(planeArea(app.scene.activePlane()) == 21.0f,
           "%s : opération sans ensembles → plan intact (%.4f)", name,
           planeArea(app.scene.activePlane()));
-    app.selFaces = s.facesA;
+    selectA(app, s);
     app.memorizeBoolSet(0);
-    app.selFaces = s.facesB;
+    selectB(app, s);
     app.memorizeBoolSet(1);
 
     const int facesBefore = (int)app.scene.activePlane().faces.size();
@@ -179,26 +247,63 @@ void runOpTest(SetOp op, float expectArea, const char* name,
           expectArea);
     CHECK(app.boolSetCount(0) == 0 && app.boolSetCount(1) == 0,
           "%s : ensembles A/B oubliés après l'opération", name);
-    CHECK(app.selMode == SelMode::Face, "%s : cible reste « triangle »", name);
-    CHECK(!app.selFaces.empty(), "%s : résultat sélectionné (%zu face(s))", name,
-          app.selFaces.size());
+    // La cible active est CONSERVÉE (pas de bascule en cible triangle).
+    CHECK(app.selMode == opMode, "%s : cible active conservée", name);
 
-    // La sélection doit couvrir exactement le résultat (et pas C).
-    float selArea = 0.0f;
-    for (int fi : app.selFaces) {
-        if (fi < 0 || (size_t)fi >= m.faces.size()) continue;
-        const Face& f = m.faces[fi];
-        float a = 0.0f;
-        for (size_t i = 0; i < f.verts.size(); ++i) {
-            const Vec2& p = m.vertices[f.verts[i]];
-            const Vec2& q = m.vertices[f.verts[(i + 1) % f.verts.size()]];
-            a += p.x * q.y - q.x * p.y;
+    // La sélection du résultat couvre exactement le résultat (et pas C), dans
+    // la cible du déclenchement : faces / sommets / arêtes.
+    if (opMode == SelMode::Face) {
+        CHECK(!app.selFaces.empty(), "%s : résultat sélectionné (%zu face(s))", name,
+              app.selFaces.size());
+        float selArea = 0.0f;
+        for (int fi : app.selFaces) {
+            if (fi < 0 || (size_t)fi >= m.faces.size()) continue;
+            const Face& f = m.faces[fi];
+            float a = 0.0f;
+            for (size_t i = 0; i < f.verts.size(); ++i) {
+                const Vec2& p = m.vertices[f.verts[i]];
+                const Vec2& q = m.vertices[f.verts[(i + 1) % f.verts.size()]];
+                a += p.x * q.y - q.x * p.y;
+            }
+            selArea += 0.5f * std::fabs(a);
         }
-        selArea += 0.5f * std::fabs(a);
+        CHECK(std::fabs(selArea - (expectArea - 1.0f)) < 1e-3f,
+              "%s : la sélection couvre le résultat seul (%.4f, attendu %.4f)", name,
+              selArea, expectArea - 1.0f);
+    } else if (opMode == SelMode::Vertex) {
+        // Tous les sommets des faces du résultat, et aucun sommet de C.
+        const std::vector<int> resFaces = resultFacesOf(app);
+        std::vector<char> usedV(m.vertices.size(), 0);
+        for (int fi : resFaces)
+            for (int v : m.faces[fi].verts) usedV[v] = 1;
+        std::vector<int> expectV;
+        for (size_t i = 0; i < usedV.size(); ++i)
+            if (usedV[i]) expectV.push_back((int)i);
+        std::vector<int> gotV = app.selVerts;
+        std::sort(gotV.begin(), gotV.end());
+        CHECK(gotV == expectV,
+              "%s : cible sommet — sélection = sommets du résultat (%zu, attendu %zu)",
+              name, gotV.size(), expectV.size());
+    } else {  // SelMode::Edge
+        // Toutes les arêtes des faces du résultat, et aucune de C.
+        const std::vector<int> resFaces = resultFacesOf(app);
+        std::vector<Mesh2D::Edge> expectE;
+        for (int fi : resFaces) {
+            const Face& f = m.faces[fi];
+            for (size_t i = 0; i < f.verts.size(); ++i) {
+                const Mesh2D::Edge e =
+                    Mesh2D::normEdge(f.verts[i], f.verts[(i + 1) % f.verts.size()]);
+                if (std::find(expectE.begin(), expectE.end(), e) == expectE.end())
+                    expectE.push_back(e);
+            }
+        }
+        std::sort(expectE.begin(), expectE.end());
+        std::vector<Mesh2D::Edge> gotE = app.selEdges;
+        std::sort(gotE.begin(), gotE.end());
+        CHECK(gotE == expectE,
+              "%s : cible segment — sélection = arêtes du résultat (%zu, attendu %zu)",
+              name, gotE.size(), expectE.size());
     }
-    CHECK(std::fabs(selArea - (expectArea - 1.0f)) < 1e-3f,
-          "%s : la sélection couvre le résultat seul (%.4f, attendu %.4f)", name,
-          selArea, expectArea - 1.0f);
 
     // Couleurs : au centre du résultat (hors C), la couleur vient de A ou B.
     {
@@ -316,10 +421,92 @@ int main() {
               "scénario initial : aire %.4f (attendu 21)", planeArea(app.scene.activePlane()));
     }
 
-    runOpTest(SetOp::Union, 17.0f, "Union (A ∪ B)", pUnion);
-    runOpTest(SetOp::Intersection, 5.0f, "Intersection (A ∩ B)", pInter);
-    runOpTest(SetOp::Difference, 5.0f, "Différence (A − B)", pDiff);
-    runOpTest(SetOp::SymDiff, 13.0f, "Symétrique (A △ B)", pSym);
+    // Sélecteurs des trois cibles : triangle (faces), sommet (coins), segment
+    // (toutes les arêtes des faces).
+    const Selector faceA = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Face;
+        a.selFaces = s.facesA;
+    };
+    const Selector faceB = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Face;
+        a.selFaces = s.facesB;
+    };
+    const Selector vertA = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Vertex;
+        a.selVerts = s.vertsA;
+    };
+    const Selector vertB = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Vertex;
+        a.selVerts = s.vertsB;
+    };
+    const Selector edgeA = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Edge;
+        a.selEdges = facesEdgesOf(a, s.facesA);
+    };
+    const Selector edgeB = [](App& a, const Scenario& s) {
+        a.selMode = SelMode::Edge;
+        a.selEdges = facesEdgesOf(a, s.facesB);
+    };
+
+    // Cible triangle (comportement d'origine).
+    runOpTest(SetOp::Union, 17.0f, "Union (A ∪ B)", pUnion, SelMode::Face, faceA,
+              faceB);
+    runOpTest(SetOp::Intersection, 5.0f, "Intersection (A ∩ B)", pInter,
+              SelMode::Face, faceA, faceB);
+    runOpTest(SetOp::Difference, 5.0f, "Différence (A − B)", pDiff, SelMode::Face,
+              faceA, faceB);
+    runOpTest(SetOp::SymDiff, 13.0f, "Symétrique (A △ B)", pSym, SelMode::Face,
+              faceA, faceB);
+
+    // Cible sommet : les 4 coins d'un rectangle forment ses triangles ; le
+    // résultat reste sélectionné en sommets.
+    runOpTest(SetOp::Difference, 5.0f, "Différence (A − B) [sommet]", pDiff,
+              SelMode::Vertex, vertA, vertB);
+    runOpTest(SetOp::Union, 17.0f, "Union (A ∪ B) [sommet]", pUnion, SelMode::Vertex,
+              vertA, vertB);
+
+    // Cible segment : toutes les arêtes des faces (diagonale interne comprise) ;
+    // le résultat reste sélectionné en segments.
+    runOpTest(SetOp::Difference, 5.0f, "Différence (A − B) [segment]", pDiff,
+              SelMode::Edge, edgeA, edgeB);
+    runOpTest(SetOp::Union, 17.0f, "Union (A ∪ B) [segment]", pUnion, SelMode::Edge,
+              edgeA, edgeB);
+
+    // Sélections partielles : aucune face entièrement couverte → rien mémorisé.
+    {
+        App app;
+        const Scenario s = buildScenario(app);
+        app.selMode = SelMode::Vertex;
+        app.selVerts = {s.vertsA[0], s.vertsA[1]};  // 2 coins seulement
+        app.memorizeBoolSet(0);
+        CHECK(app.boolSetCount(0) == 0, "sommet partiel : rien mémorisé");
+        CHECK(app.status.find("ne forme aucune face") != std::string::npos,
+              "sommet partiel : message d'aide posé");
+    }
+    {
+        App app;
+        const Scenario s = buildScenario(app);
+        app.selMode = SelMode::Edge;
+        app.selEdges = outlineEdgesOf(app, s.facesA);  // pourtour sans diagonale
+        app.memorizeBoolSet(0);
+        CHECK(app.boolSetCount(0) == 0, "segment partiel : rien mémorisé");
+        CHECK(app.status.find("ne forme aucune face") != std::string::npos,
+              "segment partiel : message d'aide posé");
+    }
+    {
+        // A complet mais B incomplet : l'opération ne démarre pas.
+        App app;
+        const Scenario s = buildScenario(app);
+        vertA(app, s);
+        app.memorizeBoolSet(0);
+        app.selMode = SelMode::Vertex;
+        app.selVerts = {s.vertsB[0], s.vertsB[1]};
+        app.memorizeBoolSet(1);
+        CHECK(app.boolSetCount(1) == 0, "B incomplet : rien mémorisé");
+        app.applyBoolOp(SetOp::Difference);
+        CHECK(std::fabs(planeArea(app.scene.activePlane()) - 21.0f) < 1e-3f,
+              "B incomplet : plan intact (%.4f)", planeArea(app.scene.activePlane()));
+    }
 
     std::printf("\n%s (%d échec(s))\n", failures == 0 ? "TOUT EST VERT" : "ÉCHECS",
                 failures);

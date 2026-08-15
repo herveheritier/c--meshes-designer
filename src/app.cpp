@@ -3483,37 +3483,82 @@ bool App::boolSetValid(int which) const {
 }
 
 void App::memorizeBoolSet(int which) {
-    if (selMode != SelMode::Face) {
-        setStatus("Opérations ensemblistes : passez à la cible « triangle » puis "
-                  "sélectionnez les faces d'un ensemble");
-        return;
+    // Faces « formées » par la sélection courante (5.12) :
+    //  - cible triangle : les faces sélectionnées elles-mêmes ;
+    //  - cible sommet : les faces dont TOUS les sommets sont sélectionnés (les
+    //    4 coins d'un rectangle forment ses triangles) ;
+    //  - cible segment : les faces dont TOUTES les arêtes sont sélectionnées
+    //    (le pourtour d'un rectangle doit inclure sa diagonale interne).
+    const Mesh2D& m = scene.activePlane();
+    std::vector<int> faces;
+    if (selMode == SelMode::Face) {
+        faces = selFaces;
+    } else if (selMode == SelMode::Vertex) {
+        std::vector<char> vs(m.vertices.size(), 0);
+        for (int v : selVerts)
+            if (v >= 0 && (size_t)v < vs.size()) vs[v] = 1;
+        for (int fi = 0; fi < (int)m.faces.size(); ++fi) {
+            const Face& f = m.faces[fi];
+            if (f.verts.empty()) continue;
+            bool all = true;
+            for (int v : f.verts)
+                if (v < 0 || (size_t)v >= vs.size() || !vs[v]) {
+                    all = false;
+                    break;
+                }
+            if (all) faces.push_back(fi);
+        }
+    } else {  // SelMode::Edge
+        std::vector<Mesh2D::Edge> selE = selEdges;
+        for (auto& e : selE) e = Mesh2D::normEdge(e.first, e.second);
+        std::sort(selE.begin(), selE.end());
+        selE.erase(std::unique(selE.begin(), selE.end()), selE.end());
+        for (int fi = 0; fi < (int)m.faces.size(); ++fi) {
+            const Face& f = m.faces[fi];
+            if ((int)f.verts.size() < 3) continue;
+            bool all = true;
+            for (size_t i = 0; i < f.verts.size(); ++i) {
+                const Mesh2D::Edge e =
+                    Mesh2D::normEdge(f.verts[i], f.verts[(i + 1) % f.verts.size()]);
+                if (!std::binary_search(selE.begin(), selE.end(), e)) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) faces.push_back(fi);
+        }
     }
-    if (selFaces.empty()) {
-        setStatus("Opérations ensemblistes : sélectionnez d'abord des triangles "
-                  "(cible « triangle »)");
+    if (faces.empty()) {
+        setStatus("Opérations ensemblistes : la sélection ne forme aucune face — "
+                  "sélectionnez (cible triangle) les faces, (cible sommet) tous "
+                  "les sommets d'un polygone, ou (cible segment) toutes ses arêtes");
         return;
     }
     const std::string name = which == 0 ? "A" : "B";
     if (which == 0) {
-        boolSetA = selFaces;
+        boolSetA = faces;
         boolSetAPlane = scene.active;
     } else {
-        boolSetB = selFaces;
+        boolSetB = faces;
         boolSetBPlane = scene.active;
     }
-    setStatus("Ensemble " + name + " mémorisé : " + std::to_string(selFaces.size()) +
-              " triangle(s) — sélectionnez l'autre ensemble puis choisissez "
-              "l'opération (union / intersection / différence / symétrique)");
-    logMsg("Ensemble " + name + " mémorisé : " + std::to_string(selFaces.size()) +
-           " triangle(s)");
+    setStatus("Ensemble " + name + " mémorisé : " + std::to_string(faces.size()) +
+              " face(s) formée(s) par la sélection — sélectionnez l'autre ensemble "
+              "puis choisissez l'opération (union / intersection / différence / "
+              "symétrique)");
+    logMsg("Ensemble " + name + " mémorisé : " + std::to_string(faces.size()) +
+           " face(s)");
 }
 
 void App::applyBoolOp(SetOp op) {
     if (!boolSetValid(0) || !boolSetValid(1)) {
         setStatus("Opérations ensemblistes : mémorisez d'abord les ensembles A et B "
-                  "(cible triangle, même plan actif)");
+                  "(même plan actif)");
         return;
     }
+    // Cible active au déclenchement : le résultat reste sélectionné dans CE
+    // mode (triangle : faces · sommet : sommets · segment : arêtes).
+    const SelMode opMode = selMode;
     Mesh2D& m = scene.activePlane();
 
     // Triangles des ensembles : chaque face (éventuellement polygonale) est
@@ -3657,9 +3702,32 @@ void App::applyBoolOp(SetOp op) {
         }
     }
 
-    selMode = SelMode::Face;
+    // Le résultat reste sélectionné dans la cible active (pas de bascule
+    // forcée en cible triangle) : faces du résultat, ou leurs sommets / leurs
+    // arêtes selon le mode de l'utilisateur.
     clearSelection();
-    selFaces = newSel;
+    if (opMode == SelMode::Face) {
+        selFaces = newSel;
+    } else if (opMode == SelMode::Vertex) {
+        std::vector<char> used(m.vertices.size(), 0);
+        for (int fi : newSel)
+            for (int v : m.faces[fi].verts)
+                if (v >= 0 && (size_t)v < used.size()) used[v] = 1;
+        for (size_t i = 0; i < used.size(); ++i)
+            if (used[i]) selVerts.push_back((int)i);
+    } else {  // SelMode::Edge
+        std::vector<Mesh2D::Edge> resEdges;
+        for (int fi : newSel) {
+            const Face& f = m.faces[fi];
+            for (size_t i = 0; i < f.verts.size(); ++i) {
+                const Mesh2D::Edge e =
+                    Mesh2D::normEdge(f.verts[i], f.verts[(i + 1) % f.verts.size()]);
+                if (std::find(resEdges.begin(), resEdges.end(), e) == resEdges.end())
+                    resEdges.push_back(e);
+            }
+        }
+        selEdges = std::move(resEdges);
+    }
 
     const char* opName = op == SetOp::Union
                              ? "Union"
@@ -3667,9 +3735,13 @@ void App::applyBoolOp(SetOp op) {
                                    ? "Intersection"
                                    : op == SetOp::Difference ? "Différence"
                                                               : "Différence symétrique";
+    const char* modeName =
+        opMode == SelMode::Face ? "triangle" : opMode == SelMode::Vertex ? "sommet"
+                                                                         : "segment";
     setStatus("Opération ensembliste « " + std::string(opName) + " » : " +
               std::to_string(newSel.size()) +
-              " triangle(s) — seule la géométrie du résultat est conservée");
+              " triangle(s) — le résultat est sélectionné (cible « " + modeName +
+              " »)");
     logMsg("Opération ensembliste « " + std::string(opName) + " » : " +
            std::to_string(newSel.size()) + " triangle(s)");
     clearBoolSets();  // les faces sources ont été remplacées : ensembles périmés

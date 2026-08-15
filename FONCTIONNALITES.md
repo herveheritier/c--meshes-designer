@@ -469,8 +469,13 @@ gérés) puis le résultat est **triangulé une seule fois à la fin** — la
 triangulation du résultat est donc **minimale** : pas de coutures internes ni
 de fragments le long des diagonales internes des ensembles.
 
-- **Mémoriser A** puis **Mémoriser B** : chacun capture la **sélection courante**
-  (cible **triangle**) du plan actif ;
+- **Mémoriser A** puis **Mémoriser B** : chacun capture les **faces formées par
+  la sélection courante** du plan actif — selon la cible :
+  - cible **triangle** : les faces sélectionnées elles-mêmes ;
+  - cible **sommet** : les faces dont **tous les sommets** sont sélectionnés
+    (les 4 coins d'un rectangle forment ses triangles) ;
+  - cible **segment** : les faces dont **toutes les arêtes** sont sélectionnées
+    (le pourtour d'un rectangle triangulé doit inclure sa diagonale interne) ;
 - puis l'une des **4 opérations** (menu du paquet Sélection) :
   - **Union (A ∪ B)** : tout ce qui appartient à A ou à B ;
   - **Intersection (A ∩ B)** : la zone commune ;
@@ -478,25 +483,31 @@ de fragments le long des diagonales internes des ensembles.
   - **Différence symétrique (A △ B)** : ce qui appartient à A ou à B, mais pas
     aux deux.
 
-Le **résultat devient la sélection triangle** du plan actif : dans la zone des
-deux ensembles, **seule la géométrie du résultat est conservée** (la couleur
-d'origine de chaque triangle du résultat est reprise de la face source qu'il
-recouvre) — les restes (ex. la partie de B hors du résultat d'une différence
-A−B, y compris une face de B entièrement dans A) sont retirés du plan. Le reste
-du plan, qui n'appartient à aucun des deux ensembles, reste intact.
-L'opération est **annulable** (Ctrl+Z) : elle peut être refaite après avoir
-mémorisé à nouveau les ensembles, puisque ceux-ci sont oubliés une fois
-l'opération appliquée.
+Le **résultat reste sélectionné dans la cible active** au moment du
+**déclenchement** (pas de bascule forcée en cible triangle) : cible triangle →
+ses faces, cible sommet → ses sommets, cible segment → ses arêtes. Dans la
+zone des deux ensembles, **seule la géométrie du résultat est conservée** (la
+couleur d'origine de chaque triangle du résultat est reprise de la face source
+qu'il recouvre) — les restes (ex. la partie de B hors du résultat d'une
+différence A−B, y compris une face de B entièrement dans A) sont retirés du
+plan (avec leurs sommets devenus orphelins). Le reste du plan, qui
+n'appartient à aucun des deux ensembles, reste intact. L'opération est **annulable** (Ctrl+Z) : elle
+peut être refaite après avoir mémorisé à nouveau les ensembles, puisque
+ceux-ci sont oubliés une fois l'opération appliquée.
 
 Chaque ensemble reste valide tant que le **même plan est actif** et que sa
 **géométrie n'a pas changé** ; changer de plan, modifier le maillage ou annuler
 / rétablir oublie les ensembles mémorisés (un message le signale si l'on tente
 une opération avec des ensembles manquants). Pour construire A et B :
 
-1. cible **triangle**, sélectionnez les faces de A (Maj pour ajouter) →
-   **Mémoriser A** ;
-2. sélectionnez les faces de B → **Mémoriser B** ;
+1. sélectionnez les éléments de A (faces, ou tous les sommets / toutes les
+   arêtes d'un polygone) → **Mémoriser A** ;
+2. sélectionnez les éléments de B → **Mémoriser B** ;
 3. cliquez l'opération souhaitée.
+
+Une sélection qui ne forme aucune face (ex. 2 coins d'un triangle, ou le
+pourtour d'un rectangle sans sa diagonale) ne mémorise rien : un message
+l'indique.
 
 ### 5.13 Clic cyclique dans la pile de faces superposées
 
