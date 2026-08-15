@@ -139,7 +139,9 @@ Paquets, dans l'ordre :
 2. **Affichage** : prévisualiser, modes « toutes couleurs » / « filaire », images par seconde.
 3. **Vue** : tout afficher, cadrer la sélection, outil mesure.
 4. **Sélection** : cible (sommet / segment / triangle), tout sélectionner (clic
-   droit : menu), compteur de sélection (toujours visible).
+   droit : menu), sélection chaînée, opérations ensemblistes (mémoriser A / B,
+   union, intersection, différence, symétrique), clic cyclique dans les faces
+   superposées, lasso, compteur de sélection (toujours visible).
 5. **Presse-papiers** : copier / couper / coller / dupliquer la sélection.
 6. **Outils** : peinture (palette), aligner / répartir, rotation précise, mise à
    l'échelle, formes prédéfinies.
@@ -152,7 +154,8 @@ Paquets, dans l'ordre :
 12. **Plans — édition** : dupliquer, renommer.
 13. **Plans — ordre** : monter / descendre.
 14. **Plans — gestion** : ajouter un plan vide, supprimer le plan actif, kiosque.
-15. **Scène** : réinitialiser entièrement.
+15. **Scène** : manipuler (anneau de poignées : sélection / plan courant / scène
+    complète — clic droit : choisir la cible), fond du canvas, réinitialiser.
 16. **Interface** : console, aide, réglages.
 
 ### 3.3 Le HUD (affichage d'état)
@@ -440,6 +443,82 @@ des éléments à sélectionner d'un coup :
 Comme le rectangle, le lasso ne déplace jamais la géométrie. Un tracé trop
 court (moins de 3 points) ne sélectionne rien.
 
+### 5.11 Sélection chaînée
+
+Le bouton **Sélection chaînée** du paquet Sélection sélectionne, à partir de la
+**sélection courante**, **tous les éléments qui lui sont liés par des chaînes
+d'adjacence** (la relation se propage de proche en proche) :
+
+- cible **triangle** : deux triangles sont liés s'ils **partagent au moins un
+  sommet** — le bouton sélectionne toutes les faces de la ou des chaînes
+  issues des triangles sélectionnés ;
+- cible **segment** : deux segments sont liés s'ils partagent un sommet ;
+- cible **sommet** : deux sommets sont liés s'ils sont reliés par un segment.
+
+Un clic **remplace** la sélection par l'ensemble chaîné ; avec **Ctrl** ou
+**Maj** enfoncés, les éléments chaînés sont **ajoutés** à la sélection
+courante. Sans sélection, le bouton ne sélectionne rien (un message l'indique).
+
+### 5.12 Opérations ensemblistes (union, intersection, différence, symétrique)
+
+Deux **ensembles de triangles A et B** peuvent être combinés par une opération
+ensembliste (booléenne géométrique) : chaque ensemble est traité comme une
+**région polygonale** (la réunion de ses triangles), les régions sont combinées
+**par leur frontière** (chevauchements partiels, arêtes coïncidentes et trous
+gérés) puis le résultat est **triangulé une seule fois à la fin** — la
+triangulation du résultat est donc **minimale** : pas de coutures internes ni
+de fragments le long des diagonales internes des ensembles.
+
+- **Mémoriser A** puis **Mémoriser B** : chacun capture la **sélection courante**
+  (cible **triangle**) du plan actif ;
+- puis l'une des **4 opérations** (menu du paquet Sélection) :
+  - **Union (A ∪ B)** : tout ce qui appartient à A ou à B ;
+  - **Intersection (A ∩ B)** : la zone commune ;
+  - **Différence (A − B)** : ce qui appartient à A mais pas à B ;
+  - **Différence symétrique (A △ B)** : ce qui appartient à A ou à B, mais pas
+    aux deux.
+
+Le **résultat devient la sélection triangle** du plan actif : dans la zone des
+deux ensembles, **seule la géométrie du résultat est conservée** (la couleur
+d'origine de chaque triangle du résultat est reprise de la face source qu'il
+recouvre) — les restes (ex. la partie de B hors du résultat d'une différence
+A−B, y compris une face de B entièrement dans A) sont retirés du plan. Le reste
+du plan, qui n'appartient à aucun des deux ensembles, reste intact.
+L'opération est **annulable** (Ctrl+Z) : elle peut être refaite après avoir
+mémorisé à nouveau les ensembles, puisque ceux-ci sont oubliés une fois
+l'opération appliquée.
+
+Chaque ensemble reste valide tant que le **même plan est actif** et que sa
+**géométrie n'a pas changé** ; changer de plan, modifier le maillage ou annuler
+/ rétablir oublie les ensembles mémorisés (un message le signale si l'on tente
+une opération avec des ensembles manquants). Pour construire A et B :
+
+1. cible **triangle**, sélectionnez les faces de A (Maj pour ajouter) →
+   **Mémoriser A** ;
+2. sélectionnez les faces de B → **Mémoriser B** ;
+3. cliquez l'opération souhaitée.
+
+### 5.13 Clic cyclique dans la pile de faces superposées
+
+Quand plusieurs faces se chevauchent au même endroit (cas typique de deux
+ensembles dessinés l'un sur l'autre, 5.12), la **face du dessus** cache celles
+du dessous : un clic normal ne pouvait sélectionner que la face visible. Le
+**clic cyclique** (cible « triangle ») descend dans la pile :
+
+- **premier clic** : sélectionne la **face du dessus** (celle dessinée en
+dernier) ;
+- **re-clic au même endroit** : sélectionne la face **juste en dessous**, puis
+  la suivante, et ainsi de suite (après la plus basse, on remonte en haut) ;
+- un clic **ailleurs** ou sur une **zone vide** repart de la face du dessus ;
+- avec **Maj**, chaque clic ajoute / retire la face choisie de la sélection —
+  idéal pour accumuler les faces cachées d'un ensemble ;
+- le **survol** signale l'empilement (« N faces superposées ici ») et la barre
+d'état indique la position dans la pile (ex. « face 2/3 de haut en bas »).
+
+La couleur (7.3) et l'ordre de dessin des faces (paquet Ordre z : `]` vers
+l'avant, `[` vers l'arrière) restent les repères pour savoir *où* l'on est dans
+la pile — une face peut aussi être amenée au-dessus avant de la sélectionner.
+
 ---
 
 ## 6. Couleurs et peinture
@@ -582,14 +661,17 @@ Le popup du bouton permet de :
 - **manipuler le calque au canvas** : un **anneau de poignées unifié**
   (un seul bouton « Manipuler » au lieu de trois) — une fois le mode armé,
   l'anneau suit le curseur puis s'ancre au premier clic gauche. L'anneau
-  (rayon 60 px écran) contient :
-  - **12 poignées sur l'anneau** : **cyan** = échelle en X (largeur seule),
-    **ambre** = échelle en Y (hauteur seule), **blanc** = échelle uniforme
-    (rapport x/y conservé), **rouge** = symétries (clic instantané : miroir
-    horizontal, vertical ou les deux) ;
-  - **4 flèches vertes** à l'extérieur de l'anneau : déplacement contraint
-    en X (gauche/droite) ou en Y (haut/bas) ;
-  - **centre** (disque) : déplacement libre du calque ;
+  contient **une seule poignée par action** (8 poignées sur le cercle de
+  40 px) :
+  - **échelle** : carreau **cyan** = largeur seule (X, à l'est), carreau
+    **ambre** = hauteur seule (Y, au nord), losange **blanc** = échelle
+    uniforme (rapport x/y conservé, nord-est) ;
+  - **déplacement contraint** : flèches **vertes** à l'ouest (X) et au
+    sud (Y) ;
+  - **symétries** : pastilles **rouges** (sud-est = miroir X, nord-ouest =
+    miroir Y, sud-ouest = miroir X/Y) — **clic instantané** ;
+  - **centre** (disque) : déplacement libre du calque — l'anneau **suit le
+    calque** (les poignées restent autour de lui, le pivot suit) ;
   - **anneau lui-même** : rotation (glisser autour du centre) ;
   - clic droit ou Échap désarme le mode ; un clic sans glisser ne crée
     pas d'étape d'annulation ;
@@ -597,8 +679,8 @@ Le popup du bouton permet de :
   vue ;
 - **Retirer le calque**.
 
-Chaque manipulation (déplacement, rotation, échelle, opacité, visibilité,
-retrait) est **annulable** (une étape par geste). L'image apparaît aussi dans
+Chaque manipulation (déplacement, rotation, échelle, symétrie, opacité,
+visibilité, retrait) est **annulable** (une étape par geste). L'image apparaît aussi dans
 l'export PNG de la vue, puisqu'elle fait partie du rendu de la scène. Un
 fichier de scène sans calque charge sans image (compatibilité ascendante).
 
@@ -660,32 +742,49 @@ zoomer et se déplacer sans rien modifier.
 
 - **AltGr + clic droit + glisser** : déplace **tous les plans** d'un même décalage (la vue ne bouge pas, c'est le contenu entier qui se déplace).
 
-### 8.5 Mode « Scène » : manipulation de tous les plans à la souris
+### 8.5 Anneau de manipulation : sélection, plan courant, scène complète
 
-Un groupe de boutons dédié à la scène complète (barre d'outils) :
+Le bouton **Manipuler** du paquet Scène (il remplace les trois boutons
+« saisir / pivoter / redimensionner » de l'ancien mode Scène) arme le **même
+anneau de poignées** que le calque (7.7) pour une **cible** :
 
-- **Saisir** : arme la saisie de la scène — **clic gauche + glisser** au canvas
-  déplace **tous les plans** d'un même décalage (l'aimantation s'applique si
-  elle est active).
-- **Rotation** : arme la rotation — **clic gauche + glisser horizontal** pivote
-  tous les plans autour du **point de saisie** (le curseur).
-- **Échelle** : arme la mise à l'échelle — **clic gauche + glisser vertical**
-  agrandit (vers le bas) ou réduit (vers le haut), autour du point de saisie.
+- **Sélection** (défaut) : la sélection courante du plan actif ;
+- **Plan courant** : tout le plan actif ;
+- **Scène complète** : tous les plans ensemble.
+
+Le paquet affiche **trois boutons radio**, un par cible (**Sélection**,
+**Plan**, **Scène**) : la cible active est mise en évidence et **désactive les
+autres**. **Clic** sur une cible : arme l'anneau pour cette cible ; l'anneau
+s'arme **directement au centre de la cible** (centre de la boîte englobante de
+la sélection / du plan / de la scène). **Re-clic** sur la cible active :
+désarme. Un **clic gauche** ailleurs au canvas déplace l'anneau (pivot libre).
+Pendant les **déplacements** (centre ou flèches), l'anneau **suit la cible** :
+les poignées restent autour d'elle et le pivot (rotations / échelles) suit le
+déplacement. Ensuite, comme pour le calque :
+
+- **centre** (disque) : déplacement libre · **flèches vertes** : déplacement
+  contraint (X ou Y) ;
+- **anneau lui-même** : rotation autour du point d'ancrage ;
+- carreaux **cyan / ambre** : échelle en X seule / en Y seule — glisser vers
+  l'**extérieur** agrandit, vers l'**intérieur de l'anneau** rétrécit (le
+  module décroît proportionnellement jusqu'à quasi zéro au centre) · losange
+  blanc : échelle uniforme — toujours autour du point d'ancrage ;
+- pastilles **rouges** : symétries instantanées (miroir X, Y ou X/Y) autour du
+  point d'ancrage.
+
+Chaque geste (saisie, rotation, échelle, miroir) forme **une seule étape
+annulable** (Ctrl+Z) ; un clic sans glisser ne crée rien. **Clic droit ou
+Échap** désarme ; la molette (zoom) et le clic du milieu (pan) restent
+disponibles. Armer l'anneau désarme les modes transitoires (pinceau, mesure,
+fusion, tracés, calque).
+
+Le même paquet contient aussi :
+
 - **Fond** : choisit la **couleur du canvas** (roue chromatique, pastilles
   rapides, bouton « Par défaut ») ; la **molette sur le bouton** éclaircit
-  (haut) ou fonce (bas) le fond en direct.
+  (haut) ou fonce (bas) le fond en direct — mémorisée dans les préférences ;
 - **Réinitialiser** : vide entièrement la scène (confirmation, historique
   annulé, fond remis à l'ardoise).
-
-Pendant la saisie, un **cercle pointillé** marque le pivot et un **badge**
-affiche la valeur en direct (rotation en degrés, échelle ×). Chaque saisie
-forme **une seule étape annulable** (Ctrl+Z) ; un clic sans glisser ne crée
-rien. **Clic droit ou Échap** désarme le mode ; la molette (zoom) et le clic du
-milieu (pan) restent disponibles. Armer un outil de scène désarme les modes
-transitoires (pinceau, mesure, fusion, tracés).
-
-La **couleur du fond** et l'**outil de scène armé** sont mémorisés dans les
-préférences (prefs.json) et restaurés au lancement suivant.
 
 ---
 

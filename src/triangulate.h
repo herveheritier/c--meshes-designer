@@ -62,6 +62,40 @@ bool triangulatePolygonHoles(const std::vector<Vec2>& outer,
 bool subtractPolygon(const std::vector<Vec2>& subject, const std::vector<Vec2>& cut,
                      std::vector<Vec2>& pts, std::vector<int>& tris);
 
+// ---------------------------------------------------------------------------
+// Opérations ensemblistes (booléennes) entre deux ensembles de triangles
+// ---------------------------------------------------------------------------
+// Opération appliquée entre les ensembles A et B.
+enum class SetOp { Union, Intersection, Difference, SymDiff };
+
+// Composante connexe du résultat d'une opération ensembliste : boucle
+// extérieure (sommets en coordonnées monde) + boucles de trous. La
+// triangulation est laissée à l'appelant (triangulatePolygonHoles) : elle est
+// faite UNE fois à la fin, ce qui donne une triangulation minimale du
+// résultat, sans coutures internes ni fragments le long des diagonales
+// internes des ensembles.
+struct BoolRegion {
+    std::vector<Vec2> outer;              // boucle extérieure (sens CCW)
+    std::vector<std::vector<Vec2>> holes; // trous (boucles CW, dans `outer`)
+};
+
+// Résout l'opération `op` entre les ensembles de triangles A (`a`) et B (`b`)
+// PAR LEUR FRONTIÈRE : A et B sont traités comme des régions polygonales
+// (réunion de leurs triangles). Les arêtes de frontière de chaque région sont
+// découpées aux intersections avec l'autre (croisements et t-jonctions),
+// classées de part et d'autre (arêtes coïncidentes départagées par un test
+// latéral), puis seules celles du résultat sont conservées — orientées pour
+// que l'intérieur du résultat soit à gauche. Les boucles fermées du résultat
+// sont regroupées en composantes (extérieur + trous) dans `out`. Aucun
+// triangle intermédiaire n'est produit : la triangulation finale revient à
+// l'appelant. `a` et `b` : listes plates de triangles (3 Vec2 par triangle,
+// coordonnées monde). `out` est vide si le résultat est vide.
+void triangleSetBoolean(SetOp op, const std::vector<Vec2>& a,
+                        const std::vector<Vec2>& b, std::vector<BoolRegion>& out);
+
+// Débogage temporaire : active/désactive la trace de la résolution.
+void setTriangleSetBooleanDebug(bool on);
+
 // Distance de p au segment [a,b].
 float pointSegmentDistance(const Vec2& p, const Vec2& a, const Vec2& b);
 

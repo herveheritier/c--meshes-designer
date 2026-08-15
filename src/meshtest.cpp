@@ -983,7 +983,7 @@ static void testSpecFormats() {
         CHECK(!bad.ok);
     }
 
-    // Préférences : palette + emplacements + opacité + fond & mode Scène (8.5)
+    // Préférences : palette + emplacements + opacité + fond du canvas (8.5)
     {
         PrefsData p;
         p.palette = {rgba(1, 0, 0), rgba(0, 1, 0)};
@@ -993,7 +993,6 @@ static void testSpecFormats() {
         p.vertexPickTol = 11.0f;
         p.locations = {"sceneA", "sceneB"};
         p.bgColor = {0.2f, 0.4f, 0.6f, 1.0f};
-        p.sceneTool = 2;  // rotation
         // Paquets de la barre d'outils (3.2) : un bit par paquet, certains
         // repliés — l'état doit revenir tel quel.
         p.toolbarPacks = 0x5A5A5Au;
@@ -1018,7 +1017,6 @@ static void testSpecFormats() {
         CHECK(back.vertexPickTol == 11.0f);
         CHECK(back.locations.size() == 2 && back.locations[1] == "sceneB");
         CHECK(back.bgColor.r == 0.2f && back.bgColor.g == 0.4f && back.bgColor.b == 0.6f);
-        CHECK(back.sceneTool == 2);
         CHECK(back.toolbarPacks == 0x5A5A5Au);
         // Le calque mémorisé revient tel quel (position, rotation, échelle).
         CHECK(back.image.path == "/data/logo.png");
@@ -1076,8 +1074,8 @@ static void testSpecFormats() {
     }
 
     // Préférences : compatibilité ascendante — un fichier ANCIEN (sans les
-    // champs 8.5 bgColor / sceneTool) charge le fond par défaut et un mode
-    // scène désarmé (le chemin « clé absente » de loadPrefsJson est exercé).
+    // champs bgColor / toolbarPacks) charge le fond par défaut et tous les
+    // paquets ouverts (le chemin « clé absente » de loadPrefsJson est exercé).
     {
         CHECK(writeTestFile("/tmp/meshtest_prefs_legacy.json",
                             "{\"allColors\": true, \"snapOn\": false}\n").ok);
@@ -1088,7 +1086,6 @@ static void testSpecFormats() {
         CHECK(!back.wireframe);  // champ absent dans un fichier ancien → défaut
         CHECK(back.bgColor.r == kBgDefault.r && back.bgColor.g == kBgDefault.g &&
               back.bgColor.b == kBgDefault.b);
-        CHECK(back.sceneTool == 0);
         // Paquets de la barre d'outils : champ absent → tous ouverts (défaut).
         CHECK(back.toolbarPacks == 0xFFFFFFFFu);
     }
@@ -1145,7 +1142,7 @@ static void testSVGIcons() {
             for (const svg::Pt& p : fp.pts) CHECK(inBounds(p));
         }
     }
-    CHECK(n == 76);  // toutes les icônes du dossier assets/ (1 ajoutée : shape-polygon)
+    CHECK(n == 80);  // toutes les icônes du dossier assets/ (ajoutées : shape-polygon, linked, set-a, set-b, bool)
 
     // Cas particuliers (mêmes attributs que les vraies icônes de assets/) :
     // undo contient un arc (échantillonné), l'anneau est composé de deux
@@ -1462,6 +1459,146 @@ static void testFaceOrder() {
     }
 }
 
+// Opérations ensemblistes (booléennes) par frontière entre deux ensembles de
+// triangles : A et B sont traités comme des régions polygonales, le résultat
+// est un ensemble de composantes (extérieur + trous) — l'aire est vérifiée, et
+// la triangulation finale (triangulatePolygonHoles, faite une seule fois) doit
+// rester minimale : pas de coutures internes comme l'ancien découpage en
+// cellules.
+static void testSetBoolean() {
+    std::printf("[opérations ensemblistes]\n");
+
+    auto polyArea = [](const std::vector<Vec2>& p) {
+        float a = 0.0f;
+        for (size_t i = 0; i < p.size(); ++i) {
+            const Vec2& x = p[i];
+            const Vec2& y = p[(i + 1) % p.size()];
+            a += x.x * y.y - y.x * x.y;
+        }
+        return a * 0.5f;
+    };
+    // Aire du résultat : extérieur moins ses trous.
+    auto keptArea = [&](const std::vector<BoolRegion>& regions) {
+        float s = 0.0f;
+        for (const BoolRegion& r : regions) {
+            s += std::fabs(polyArea(r.outer));
+            for (const auto& h : r.holes) s -= std::fabs(polyArea(h));
+        }
+        return s;
+    };
+    auto regionCount = [](const std::vector<BoolRegion>& regions) {
+        return (int)regions.size();
+    };
+    // Nombre de triangles de la triangulation finale (minimalité).
+    auto triCount = [](const std::vector<BoolRegion>& regions) {
+        int n = 0;
+        for (const BoolRegion& r : regions) {
+            std::vector<Vec2> pts;
+            std::vector<int> tris;
+            if (!triangulatePolygonHoles(r.outer, r.holes, pts, tris)) continue;
+            n += (int)(tris.size() / 3);
+        }
+        return n;
+    };
+    auto close = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+
+    // Deux carrés qui se chevauchent sur 1×1 : A = [0,2]², B = [1,3]².
+    {
+        const std::vector<Vec2> a = {{0, 0}, {2, 0}, {2, 2}, {0, 0}, {2, 2}, {0, 2}};
+        const std::vector<Vec2> b = {{1, 1}, {3, 1}, {3, 3}, {1, 1}, {3, 3}, {1, 3}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, b, r);
+        CHECK(close(keptArea(r), 7.0f));          // 4 + 4 − 1
+        CHECK(triCount(r) <= 10);                 // triangulation minimale
+        triangleSetBoolean(SetOp::Intersection, a, b, r);
+        CHECK(close(keptArea(r), 1.0f));
+        CHECK(regionCount(r) == 1);
+        triangleSetBoolean(SetOp::Difference, a, b, r);
+        CHECK(close(keptArea(r), 3.0f));          // A ∖ B
+        triangleSetBoolean(SetOp::SymDiff, a, b, r);
+        CHECK(close(keptArea(r), 6.0f));          // 3 + 3
+    }
+
+    // Ensembles disjoints : intersection vide.
+    {
+        const std::vector<Vec2> a = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
+        const std::vector<Vec2> b = {{2, 2}, {3, 2}, {3, 3}, {2, 2}, {3, 3}, {2, 3}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, b, r);
+        CHECK(close(keptArea(r), 2.0f));
+        triangleSetBoolean(SetOp::Intersection, a, b, r);
+        CHECK(regionCount(r) == 0);
+        CHECK(close(keptArea(r), 0.0f));
+        triangleSetBoolean(SetOp::Difference, a, b, r);
+        CHECK(close(keptArea(r), 1.0f));
+        triangleSetBoolean(SetOp::SymDiff, a, b, r);
+        CHECK(close(keptArea(r), 2.0f));
+    }
+
+    // B entièrement dans A : l'union vaut A, la différence A−B est la couronne
+    // (une seule composante avec un trou).
+    {
+        const std::vector<Vec2> a = {{0, 0}, {4, 0}, {4, 4}, {0, 0}, {4, 4}, {0, 4}};
+        const std::vector<Vec2> b = {{1, 1}, {2, 1}, {2, 2}, {1, 1}, {2, 2}, {1, 2}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, b, r);
+        CHECK(close(keptArea(r), 16.0f));
+        triangleSetBoolean(SetOp::Intersection, a, b, r);
+        CHECK(close(keptArea(r), 1.0f));
+        triangleSetBoolean(SetOp::Difference, a, b, r);
+        CHECK(close(keptArea(r), 15.0f));
+        CHECK(regionCount(r) == 1 && r[0].holes.size() == 1);  // couronne : un trou
+        triangleSetBoolean(SetOp::SymDiff, a, b, r);
+        CHECK(close(keptArea(r), 15.0f));
+    }
+
+    // Ensembles identiques : union = A, intersection = A, différence vide.
+    {
+        const std::vector<Vec2> a = {{0, 0}, {2, 0}, {2, 2}, {0, 0}, {2, 2}, {0, 2}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, a, r);
+        CHECK(close(keptArea(r), 4.0f));
+        triangleSetBoolean(SetOp::Intersection, a, a, r);
+        CHECK(close(keptArea(r), 4.0f));
+        triangleSetBoolean(SetOp::Difference, a, a, r);
+        CHECK(regionCount(r) == 0);
+        triangleSetBoolean(SetOp::SymDiff, a, a, r);
+        CHECK(regionCount(r) == 0);
+    }
+
+    // Deux triangles qui se touchent le long d'une arête (aucun chevauchement
+    // d'aire) : l'union est un quadrilatère (2 triangles), la frontière
+    // commune n'apparaît pas, la différence vaut A.
+    {
+        const std::vector<Vec2> a = {{0, 0}, {2, 0}, {0, 2}};
+        const std::vector<Vec2> b = {{0, 2}, {2, 0}, {0, 4}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, b, r);
+        CHECK(close(keptArea(r), 4.0f));
+        CHECK(regionCount(r) == 1 && triCount(r) <= 4);
+        triangleSetBoolean(SetOp::Intersection, a, b, r);
+        CHECK(regionCount(r) == 0);   // seulement une arête commune : rien
+        triangleSetBoolean(SetOp::Difference, a, b, r);
+        CHECK(close(keptArea(r), 2.0f));
+        triangleSetBoolean(SetOp::SymDiff, a, b, r);
+        CHECK(close(keptArea(r), 4.0f));
+    }
+
+    // Deux carrés qui se touchent en un seul coin : union = deux composantes.
+    {
+        const std::vector<Vec2> a = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
+        const std::vector<Vec2> b = {{1, 1}, {2, 1}, {2, 2}, {1, 1}, {2, 2}, {1, 2}};
+        std::vector<BoolRegion> r;
+        triangleSetBoolean(SetOp::Union, a, b, r);
+        CHECK(close(keptArea(r), 2.0f));
+        CHECK(regionCount(r) == 2);   // deux composantes disjointes
+        triangleSetBoolean(SetOp::Intersection, a, b, r);
+        CHECK(regionCount(r) == 0);
+        triangleSetBoolean(SetOp::Difference, a, b, r);
+        CHECK(close(keptArea(r), 1.0f));
+    }
+}
+
 int main() {
     testTriangulation();
     testCrownBand();
@@ -1474,6 +1611,7 @@ int main() {
     testSVGIcons();
     testObjSvg();
     testPngExport();
+    testSetBoolean();
 
     std::printf("\nRésultat : %d/%d vérifications OK\n", g_checks - g_failures, g_checks);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

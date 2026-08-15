@@ -57,6 +57,30 @@ add_executable(meshtest src/meshtest.cpp)
 target_compile_options(meshtest PRIVATE -Wall -Wextra)
 target_link_libraries(meshtest PRIVATE meshcore)
 
+# --- Test d'interface des opérations ensemblistes (5.12) : pilote les vraies
+# méthodes de App (memorizeBoolSet / applyBoolOp / undo / redo) sans GUI.
+add_executable(booluitest
+  src/boolui_test.cpp
+  src/app.cpp
+  src/camera.cpp
+  src/io.cpp
+  src/renderer.cpp
+  src/stb_image_impl.cpp
+  external/imgui/imgui.cpp
+  external/imgui/imgui_draw.cpp
+  external/imgui/imgui_tables.cpp
+  external/imgui/imgui_widgets.cpp
+  external/imgui/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(booluitest PRIVATE
+  src
+  external
+  external/imgui
+  external/imgui/backends
+)
+target_compile_options(booluitest PRIVATE -Wall -Wextra)
+target_link_libraries(booluitest PRIVATE meshcore SDL2::SDL2 OpenGL::GL)
+
 # std::filesystem : lien explicite requis par certaines chaînes GCC (< 9).
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
   target_link_libraries(mesheditor PRIVATE stdc++fs)

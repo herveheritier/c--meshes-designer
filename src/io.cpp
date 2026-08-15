@@ -816,7 +816,6 @@ IoResult savePrefsJson(const PrefsData& p, const std::string& path) {
     bg.arr.push_back(JVal::num(p.bgColor.g));
     bg.arr.push_back(JVal::num(p.bgColor.b));
     v.obj.emplace_back("bgColor", bg);
-    v.obj.emplace_back("sceneTool", JVal::num(p.sceneTool));
     // Calque mémorisé (7.9) : le chemin + la transformée (position, rotation,
     // échelle) sont rappelés au prochain démarrage — même sérialisation que
     // celle de la scène, écrite seulement si un calque est présent.
@@ -871,8 +870,6 @@ IoResult loadPrefsJson(PrefsData& p, const std::string& path) {
         out.bgColor = {clamp01(bg->arr[0].n), clamp01(bg->arr[1].n),
                        clamp01(bg->arr[2].n), 1.0f};
     }
-    // Outil du mode Scène armé (8.5) : entier 0..3, hors bornes → désarmé.
-    if (root.getNum("sceneTool", d)) out.sceneTool = (int)std::clamp(d, 0.0, 3.0);
     // Calque mémorisé (7.9) : même format que la scène ; absent → aucun calque
     // (l'état par défaut de ImageLayer est conservé).
     const JVal* img = root.find("image");

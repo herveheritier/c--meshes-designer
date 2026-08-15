@@ -740,9 +740,29 @@ void toolbar(App& app) {
         const std::string selCount = std::to_string(app.selectionCount());
         const float selPillW =
             pillWidth(selCount.c_str(), nullptr, ImGui::CalcTextSize("9999").x + 18.0f);
+        // Sélection chaînée (5.11) : grisée quand la sélection courante est vide
+        // (l'action n'a rien à chaîner — convention « actions indisponibles »).
+        const bool linkedEnabled =
+            app.selMode == SelMode::Face   ? !app.selFaces.empty()
+            : app.selMode == SelMode::Edge ? !app.selEdges.empty()
+                                           : !app.selVerts.empty();
+        // Opérations ensemblistes (5.12) : Mémoriser A / Mémoriser B capturent
+        // chacun la sélection courante (cible triangle) comme un ensemble ; le
+        // bouton « Booléennes » ouvre le popup des opérations (union,
+        // intersection, différence, symétrique) entre les deux ensembles.
+        const bool faceSel = app.selMode == SelMode::Face && !app.selFaces.empty();
+        const std::string boolTip =
+            "Opérations ensemblistes (5.12) : deux ensembles de triangles A et B,\n"
+            "chacun mémorisé depuis la sélection courante (cible triangle) — "
+            "union (A∪B), intersection (A∩B), différence (A−B), symétrique (A△B)\n"
+            "· dans la zone des deux ensembles, seule la géométrie du résultat est "
+            "conservée (le reste du plan est intact) · le résultat devient la "
+            "sélection triangle du plan actif";
         if (packToggle(kPackSelection, "selection-mode", "Sélection",
-                       "cible, tout sélectionner, lasso, compteur",
-                       packW({toolBtnWidth(targetLabel), bw, bw, selPillW}))) {
+                       "cible, tout sélectionner, chaînée, lasso, booléennes, compteur",
+                       packW({toolBtnWidth(targetLabel), bw, bw, bw,
+                              toolBtnWidth("A"), toolBtnWidth("B"),
+                              toolBtnWidth("Booléennes"), selPillW}))) {
             if (toolBtnIcon("selection-mode", "Cible d'édition : sommet / segment / triangle",
                             false, kGreen, false, targetLabel))
                 app.cycleTarget();
@@ -768,6 +788,14 @@ void toolbar(App& app) {
                     app.invertSelection();
                     ImGui::CloseCurrentPopup();
                 }
+                if (toolBtnIcon("linked", "Sélection chaînée : tous les éléments liés à la "
+                                "sélection courante (triangles par ≥ 1 sommet partagé, "
+                                "segments par sommet partagé, sommets par segment) — Ctrl ou "
+                                "Maj : ajouter, sinon remplacer", false, kGreen, !linkedEnabled,
+                                "Sélection chaînée", 190.0f)) {
+                    app.selectLinked();
+                    ImGui::CloseCurrentPopup();
+                }
                 ImGui::EndPopup();
             }
             // Lasso (5.9) : tracé libre autour des éléments à sélectionner d'un
@@ -784,6 +812,114 @@ void toolbar(App& app) {
                           "sommets, segments ou faces à sélectionner d'un coup",
                     app.lassoArmed, kGreen, false))
                 app.toggleLasso();
+            // Sélection chaînée (5.11) : tous les éléments liés à la sélection
+            // courante par des chaînes d'adjacence — triangles par ≥ 1 sommet
+            // partagé, segments par un sommet partagé, sommets par un segment.
+            // Ctrl ou Maj : ajoute à la sélection, sinon remplace.
+            ImGui::SameLine();
+            if (toolBtnIcon("linked", "Sélection chaînée : sélectionne tous les éléments liés "
+                             "à la sélection courante (triangles par un sommet partagé, "
+                             "segments par un sommet partagé, sommets par un segment) · "
+                             "Ctrl ou Maj : ajouter, sinon remplacer", false, kGreen,
+                             !linkedEnabled))
+                app.selectLinked();
+            // Opérations ensemblistes (5.12) : mémoriser l'ensemble A puis
+            // l'ensemble B (chacun = la sélection courante, cible triangle), puis
+            // appliquer une opération entre eux. Grisé hors cible triangle ou sans
+            // sélection (rien à capturer — convention « actions indisponibles »).
+            ImGui::SameLine();
+            if (toolBtnIcon(
+                    "set-a",
+                    app.boolSetValid(0)
+                        ? ("Ensemble A mémorisé : " +
+                           std::to_string(app.boolSetCount(0)) +
+                           " triangle(s) — re-clic : remplacer par la sélection "
+                           "courante").c_str()
+                        : "Mémoriser l'ensemble A = la sélection courante (cible "
+                          "triangle) · puis mémoriser B et choisir une opération "
+                          "(bouton « Booléennes »)",
+                    app.boolSetValid(0), kGreen, !faceSel, "A"))
+                app.memorizeBoolSet(0);
+            ImGui::SameLine();
+            if (toolBtnIcon(
+                    "set-b",
+                    app.boolSetValid(1)
+                        ? ("Ensemble B mémorisé : " +
+                           std::to_string(app.boolSetCount(1)) +
+                           " triangle(s) — re-clic : remplacer par la sélection "
+                           "courante").c_str()
+                        : "Mémoriser l'ensemble B = la sélection courante (cible "
+                          "triangle) · puis choisir une opération (bouton « "
+                          "Booléennes »)",
+                    app.boolSetValid(1), kGreen, !faceSel, "B"))
+                app.memorizeBoolSet(1);
+            ImGui::SameLine();
+            // Popup des opérations : union / intersection / différence /
+            // symétrique, actives quand les deux ensembles sont mémorisés sur le
+            // plan actif. Chaque opération est une seule étape annulable (Ctrl+Z).
+            if (toolBtnIcon("bool", boolTip.c_str(), false, kGreen, false, "Booléennes"))
+                ImGui::OpenPopup("##boolmenu");
+            if (ImGui::BeginPopup("##boolmenu")) {
+                ImGui::TextDisabled("Ensembles mémorisés (plan actif) :");
+                ImGui::TextDisabled("A : %zu triangle(s) · B : %zu triangle(s)",
+                                    app.boolSetCount(0), app.boolSetCount(1));
+                if (app.boolSetValid(0) && app.boolSetValid(1)) {
+                    ImGui::Separator();
+                    const float bw2 = dialogBtnWidth(
+                        {"Union (A ∪ B)", "Intersection (A ∩ B)", "Différence (A − B)",
+                         "Différence symétrique (A △ B)"});
+                    // Chaque opération dans une portée d'ID dédiée : les quatre
+                    // boutons partagent la même icône « bool » — sans cette portée,
+                    // toolBtnIcon (PushID(icône)) confondrait leurs états.
+                    ImGui::PushID("bool-union");
+                    if (toolBtnIcon("bool",
+                                    "Union : tout ce qui est dans A ou dans B "
+                                    "(A ∪ B) — le résultat devient la sélection",
+                                    false, kGreen, false, "Union (A ∪ B)", bw2)) {
+                        app.applyBoolOp(SetOp::Union);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::PopID();
+                    ImGui::PushID("bool-inter");
+                    if (toolBtnIcon("bool",
+                                    "Intersection : la zone commune aux deux "
+                                    "ensembles (A ∩ B)",
+                                    false, kGreen, false, "Intersection (A ∩ B)", bw2)) {
+                        app.applyBoolOp(SetOp::Intersection);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::PopID();
+                    ImGui::PushID("bool-diff");
+                    if (toolBtnIcon("bool",
+                                    "Différence : ce qui est dans A mais pas dans B "
+                                    "(A − B)",
+                                    false, kGreen, false, "Différence (A − B)", bw2)) {
+                        app.applyBoolOp(SetOp::Difference);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::PopID();
+                    ImGui::PushID("bool-sym");
+                    if (toolBtnIcon("bool",
+                                    "Différence symétrique : ce qui est dans l'un ou "
+                                    "l'autre, pas dans les deux (A △ B)",
+                                    false, kGreen, false, "Différence symétrique (A △ B)",
+                                    bw2)) {
+                        app.applyBoolOp(SetOp::SymDiff);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::PopID();
+                    ImGui::Separator();
+                    if (toolBtnIcon("clear-console", "Oublier les deux ensembles mémorisés",
+                                    false, kRed, false, "Effacer", bw2)) {
+                        app.clearBoolSets();
+                        ImGui::CloseCurrentPopup();
+                    }
+                } else {
+                    ImGui::TextDisabled("Mémorisez d'abord les deux ensembles A et B "
+                                        "(boutons « A » et « B », cible triangle).");
+                }
+                ImGui::EndPopup();
+            }
             // Compteur TOUJOURS présent (0 inclus), à largeur fixe : la barre ne
             // change pas de dimension selon la sélection.
             ImGui::SameLine();
@@ -1142,7 +1278,8 @@ void toolbar(App& app) {
         if (io.MouseWheel == 0.0f) app.opacUndoPushed_ = false;
     }
 
-    // --- Paquet Scène (8.5) : saisir, pivoter, redimensionner, fond, reset ---
+    // --- Paquet Scène : manipuler (anneau : sélection / plan / scène), fond,
+    // reset, calque ---
     {
         // Portée d'ID dédiée : « rotate » et « scale » sont déjà utilisés par
         // le paquet Outils de la même fenêtre — ImGui identifie les items par
@@ -1152,42 +1289,43 @@ void toolbar(App& app) {
         // portée.
         ImGui::PushID("scene-pack");
         if (packToggle(kPackScene, "grab", "Scène",
-                       "saisir, pivoter, redimensionner, fond, reset, calque",
-                       packW({bw, bw, bw, bw, bw, bw}))) {
-            const bool grabActive = app.sceneTool == SceneTool::Grab;
-            if (toolBtnIcon(
-                    "grab",
-                    grabActive
-                        ? "Saisie de la scène armée — clic gauche + glisser : déplacer "
-                          "tous les plans ensemble · clic droit ou Échap : désarmer"
-                        : "Saisir toute la scène : clic gauche + glisser au canvas déplace "
-                          "tous les plans d'un même décalage",
-                    grabActive, kGreen, false))
-                app.toggleSceneTool(SceneTool::Grab);
+                       "manipuler (sélection / plan / scène), fond, reset, calque",
+                       packW({toolBtnWidth("Sélection"), toolBtnWidth("Plan"),
+                              toolBtnWidth("Scène"), bw, bw, bw}))) {
+            // Anneau de manipulation unifié des maillages (sélection / plan
+            // courant / scène complète) : même principe que le calque (7.7) —
+            // une poignée par action. TROIS boutons radio, un par cible : la
+            // cible active est mise en évidence et désactive les autres ; clic
+            // sur une autre cible = changer de cible et armer l'anneau, re-clic
+            // sur la cible active = désarmer (comme le re-clic du bouton).
+            auto ringBtn = [&](const char* icon, RingTarget t, const char* label,
+                               const char* tip) {
+                const bool active = app.ringArmed && app.ringTarget == t;
+                if (toolBtnIcon(icon, tip, active, kGreen, false, label)) {
+                    if (active)
+                        app.setRingTarget(RingTarget::None);  // re-clic : désarmer
+                    else
+                        app.setRingTarget(t);  // change de cible et arme
+                }
+            };
+            ringBtn("selection-mode", RingTarget::Selection, "Sélection",
+                    "Manipuler la sélection courante du plan actif avec l'anneau "
+                    "de poignées (une action par poignée) — clic : armer · re-clic "
+                    "sur la cible active : désarmer");
             ImGui::SameLine();
-            const bool rotActive = app.sceneTool == SceneTool::Rotate;
-            if (toolBtnIcon(
-                    "rotate",
-                    rotActive
-                        ? "Rotation de la scène armée — clic gauche + glisser horizontal : "
-                          "pivoter tous les plans autour du point de saisie · clic droit ou "
-                          "Échap : désarmer"
-                        : "Pivoter toute la scène : clic gauche + glisser horizontal au "
-                          "canvas (autour du point de saisie)",
-                    rotActive, kGreen, false))
-                app.toggleSceneTool(SceneTool::Rotate);
+            // Icône « duplicate-plane » (et non « layer », réservée au bouton
+            // Calque du même paquet) : les boutons du paquet partagent la même
+            // portée d'ID ImGui — deux boutons avec la même icône se
+            // confondraient (survol, clic, actif).
+            ringBtn("duplicate-plane", RingTarget::Plane, "Plan",
+                    "Manipuler tout le plan actif (tous ses sommets) avec l'anneau "
+                    "de poignées — clic : armer · re-clic sur la cible active : "
+                    "désarmer");
             ImGui::SameLine();
-            const bool scaActive = app.sceneTool == SceneTool::Scale;
-            if (toolBtnIcon(
-                    "scale",
-                    scaActive
-                        ? "Mise à l'échelle de la scène armée — clic gauche + glisser "
-                          "vertical : agrandir (vers le bas) / réduire (vers le haut) "
-                          "· clic droit ou Échap : désarmer"
-                        : "Redimensionner toute la scène : clic gauche + glisser vertical "
-                          "au canvas (vers le bas = agrandir)",
-                    scaActive, kGreen, false))
-                app.toggleSceneTool(SceneTool::Scale);
+            ringBtn("fit-view", RingTarget::Scene, "Scène",
+                    "Manipuler la scène complète (tous les plans ensemble) avec "
+                    "l'anneau de poignées — clic : armer · re-clic sur la cible "
+                    "active : désarmer");
             ImGui::SameLine();
             if (toolBtnIcon("background",
                             "Couleur du fond du canvas — clic : choisir une teinte "
@@ -1455,77 +1593,6 @@ void viewport(App& app) {
     app.viewportHovered = ImGui::IsWindowHovered();
     app.update(io.DeltaTime);
 
-    // Mode « Scène » (8.5) : repères de l'outil armé et saisie en cours.
-    if (app.sceneTool != SceneTool::None && app.preview == PreviewMode::Off) {
-        if (app.isSceneDragging()) {
-            // Cercle pointillé autour du pivot (le point saisi), la souris en
-            // fixe le rayon — la rotation / l'échelle tournent autour de lui.
-            const Vec2 ps = app.camera.worldToScreen(app.sceneDragPivot(),
-                                                     app.viewportVec2());
-            const ImVec2 p(pos.x + ps.x, pos.y + ps.y);
-            const ImVec2 mp = io.MousePos;
-            const float dx = mp.x - p.x;
-            const float dy = mp.y - p.y;
-            const float r = std::max(22.0f, std::sqrt(dx * dx + dy * dy));
-            const ImU32 col = IM_COL32(120, 230, 255, 200);
-            constexpr int kSegs = 48;
-            for (int i = 0; i < kSegs; i += 2) {
-                const float a0 = (float)i * 2.0f * kPiF / (float)kSegs;
-                const float a1 = (float)(i + 1) * 2.0f * kPiF / (float)kSegs;
-                dl->AddLine(ImVec2(p.x + std::cos(a0) * r, p.y + std::sin(a0) * r),
-                            ImVec2(p.x + std::cos(a1) * r, p.y + std::sin(a1) * r), col,
-                            1.4f);
-            }
-            dl->AddCircleFilled(p, 3.5f, col);
-            dl->AddCircle(p, 6.5f, col);
-            // Valeur en direct près du curseur (badge).
-            char buf[64];
-            // sceneDragStartScreen est relatif au viewport : on soustrait pos.
-            if (app.sceneTool == SceneTool::Rotate) {
-                const float deg = (mp.x - pos.x - app.sceneDragStartScreen().x) *
-                                  App::kSceneDegPerPx;
-                std::snprintf(buf, sizeof(buf), "rotation %+.0f°", deg);
-            } else if (app.sceneTool == SceneTool::Scale) {
-                const float f = std::exp((mp.y - pos.y - app.sceneDragStartScreen().y) *
-                                         App::kSceneScalePerPx);
-                std::snprintf(buf, sizeof(buf), "échelle ×%.2f", f);
-            } else {
-                std::snprintf(buf, sizeof(buf), "déplacement");
-            }
-            const ImVec2 ts = ImGui::CalcTextSize(buf);
-            const float padX = 9.0f, padY = 5.0f;
-            const float bw = ts.x + padX * 2.0f;
-            const float bh = ts.y + padY * 2.0f;
-            const float bx = std::max(pos.x + 4.0f,
-                                      std::min(mp.x + 14.0f, pos.x + size.x - bw - 4.0f));
-            const float by = std::max(pos.y + 4.0f,
-                                      std::min(mp.y - bh - 10.0f, pos.y + size.y - bh - 4.0f));
-            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
-                              IM_COL32(18, 24, 32, 225), 5.0f);
-            dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
-                        IM_COL32(90, 160, 255, 150), 5.0f);
-            dl->AddText(ImVec2(bx + padX, by + padY),
-                        IM_COL32(220, 235, 250, 245), buf);
-        } else {
-            // Outil armé mais pas de saisie : badge discret en haut au centre.
-            const char* label =
-                app.sceneTool == SceneTool::Grab   ? "Saisie de la scène — clic gauche + glisser"
-              : app.sceneTool == SceneTool::Rotate ? "Rotation de la scène — clic gauche + glisser horizontal"
-                                                        : "Échelle de la scène — clic gauche + glisser vertical";
-            const ImVec2 ts = ImGui::CalcTextSize(label);
-            const float padX = 10.0f, padY = 5.0f;
-            const float bw = ts.x + padX * 2.0f;
-            const float bh = ts.y + padY * 2.0f;
-            const float bx = pos.x + (size.x - bw) * 0.5f;
-            const float by = pos.y + 10.0f;
-            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
-                              IM_COL32(14, 20, 28, 200), 5.0f);
-            dl->AddRect(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
-                          IM_COL32(120, 230, 255, 90), 5.0f);
-            dl->AddText(ImVec2(bx + padX, by + padY),
-                        IM_COL32(215, 230, 245, 235), label);
-        }
-    }
 
     // Rectangle de sélection (lasso).
     if (app.isBoxDragging()) {
@@ -1535,22 +1602,25 @@ void viewport(App& app) {
         dl->AddRect(a, b, IM_COL32(140, 190, 255, 220));
     }
 
-    // Anneau de manipulation unifié du calque (7.7).
-    // Hiérarchie par rayon : chaque type d'opération a sa propre zone.
-    //  - Centre (0-25px) : Déplacement libre (disque blanc)
-    //  - Anneau échelle (40px) : Carreaux X/Y (cyan/ambre) + diamants (blanc)
-    //  - Anneau rotation (55px) : Piste bleue avec graduations
-    //  - Flèches déplacement (70px) : Grands triangles verts directionnels
-    if (app.layerArmed && app.preview == PreviewMode::Off &&
-        app.scene.image.path.size() > 0 && app.scene.image.visible) {
-        const float kScaleR = 40.0f;   // rayon échelle
+    // Anneau de manipulation unifié (calque 7.7 / maillage : sélection, plan
+    // courant, scène complète) : une SEULE poignée par action, sur le cercle de
+    // 40 px — échelle (X cyan, Y ambre, uniforme blanc), déplacement contraint
+    // (flèches vertes) et symétries (pastilles rouges, clic instantané).
+    //  - Centre : déplacement libre (disque blanc)
+    //  - Anneau rotation (55px) : piste bleue avec graduations
+    const bool ringActive = app.ringArmed ||
+                            (app.layerArmed && app.scene.image.path.size() > 0 &&
+                             app.scene.image.visible);
+    if (ringActive && app.preview == PreviewMode::Off) {
+        const Vec2 ringAnchor = app.layerArmed ? app.layerAnchor : app.ringAnchor;
+        const bool ringAnchored = app.layerArmed ? app.layerAnchored : app.ringAnchored;
+        const float kScaleR = 40.0f;   // rayon des poignées
         const float kRotR   = 55.0f;   // rayon rotation
-        const float kArrowR = 70.0f;   // rayon flèches déplacement
         const Vec2 vps = app.viewportVec2();
         const ImVec2 mp = io.MousePos;
         Vec2 centerScreen;
-        if (app.layerAnchored) {
-            const Vec2 sp = app.camera.worldToScreen(app.layerAnchor, vps);
+        if (ringAnchored) {
+            const Vec2 sp = app.camera.worldToScreen(ringAnchor, vps);
             centerScreen = {pos.x + sp.x, pos.y + sp.y};
         } else {
             centerScreen = {mp.x, mp.y};
@@ -1590,82 +1660,99 @@ void viewport(App& app) {
                             ImVec2(c.x + std::cos(rad) * r2, c.y + std::sin(rad) * r2),
                             IM_COL32(70, 180, 240, 180), 2.0f);
             }
-        }
-
-        // ---- Anneau échelle (40px) : carreaux X/Y + diamants ----
-        // Poignées cardinales : carreaux (ScaleX à l'horizontale, ScaleY à la verticale)
-        static const float kCardAngles[] = {0.0f, 90.0f, 180.0f, 270.0f};
-        for (int i = 0; i < 4; ++i) {
-            const float rad = kCardAngles[i] * kPiF / 180.0f;
-            const float px = c.x + std::cos(rad) * kScaleR;
-            const float py = c.y + std::sin(rad) * kScaleR;
-            const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
-                                         (mp.y - py) * (mp.y - py)) < 11.0f;
-            const bool isX = (i == 0 || i == 2);  // E/W = ScaleX
-            const ImU32 col = hover ? (isX ? IM_COL32(120, 235, 255, 255)
-                                           : IM_COL32(255, 205, 120, 255))
-                                    : (isX ? IM_COL32(120, 235, 255, 160)
-                                           : IM_COL32(255, 205, 120, 160));
-            const float hs = hover ? 7.5f : 6.0f;
-            // Carreau (petit carré)
-            dl->AddRectFilled(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs), col);
-            dl->AddRect(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs),
-                        IM_COL32(255, 255, 255, 100));
-            if (hover) {
+            // Zone de rotation : la bande annulaire autour de l'anneau
+            // (40-68 px) — survol mis en évidence, glisser = pivoter.
+            const float dc = std::sqrt((mp.x - c.x) * (mp.x - c.x) +
+                                       (mp.y - c.y) * (mp.y - c.y));
+            if (dc > 40.0f && dc < 68.0f) {
+                dl->AddCircle(c, kRotR, IM_COL32(130, 215, 255, 230), 0, 3.5f);
                 ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                ImGui::SetTooltip(isX ? "Échelle largeur (X) — clic + glisser"
-                                      : "Échelle hauteur (Y) — clic + glisser");
-            }
-        }
-        // Poignées diagonales : diamants (ScaleBoth)
-        static const float kDiagAngles[] = {45.0f, 135.0f, 225.0f, 315.0f};
-        for (int i = 0; i < 4; ++i) {
-            const float rad = kDiagAngles[i] * kPiF / 180.0f;
-            const float px = c.x + std::cos(rad) * kScaleR;
-            const float py = c.y + std::sin(rad) * kScaleR;
-            const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
-                                         (mp.y - py) * (mp.y - py)) < 11.0f;
-            const ImU32 col = hover ? IM_COL32(255, 255, 255, 255)
-                                    : IM_COL32(255, 255, 255, 160);
-            const float hs = hover ? 6.5f : 5.0f;
-            // Diamant (carré tourné à 45°)
-            dl->AddQuadFilled(ImVec2(px, py - hs), ImVec2(px + hs, py),
-                              ImVec2(px, py + hs), ImVec2(px - hs, py), col);
-            dl->AddQuad(ImVec2(px, py - hs), ImVec2(px + hs, py),
-                        ImVec2(px, py + hs), ImVec2(px - hs, py),
-                        IM_COL32(255, 255, 255, 100));
-            if (hover) {
-                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                ImGui::SetTooltip("Échelle uniforme (X/Y conservé) — clic + glisser");
+                ImGui::SetTooltip("Rotation — glissez autour de l'anneau");
             }
         }
 
-        // ---- Flèches déplacement contraint (70px) : grands triangles verts ----
-        static const float kArrowAngles[] = {0.0f, 90.0f, 180.0f, 270.0f};
-        for (int i = 0; i < 4; ++i) {
-            const float rad = kArrowAngles[i] * kPiF / 180.0f;
-            const float cs = std::cos(rad), sn = std::sin(rad);
-            const float px = c.x + cs * kArrowR;
-            const float py = c.y + sn * kArrowR;
+        // ---- 8 poignées sur le cercle 40px, UNE par action ----
+        // Échelle : carreau cyan (X, E) / ambre (Y, N) + losange blanc
+        // (uniforme, NE) · déplacement : flèches vertes (W = X, S = Y) ·
+        // symétries : pastilles rouges (SE = miroir X, NW = miroir Y,
+        // SW = miroir X/Y) — clic instantané.
+        struct RingSlot { float deg; LayerHandleKind kind; const char* tip; };
+        static const RingSlot slots[] = {
+            {0.0f,   LayerHandleKind::ScaleX,     "Échelle largeur (X) — clic + glisser"},
+            {45.0f,  LayerHandleKind::ScaleBoth,  "Échelle uniforme (X/Y conservé) — clic + glisser"},
+            {90.0f,  LayerHandleKind::ScaleY,     "Échelle hauteur (Y) — clic + glisser"},
+            {135.0f, LayerHandleKind::MirrorY,    "Miroir vertical (Y) — clic"},
+            {180.0f, LayerHandleKind::MoveX,      "Déplacer horizontalement (X) — clic + glisser"},
+            {225.0f, LayerHandleKind::MirrorBoth, "Miroir X et Y — clic"},
+            {270.0f, LayerHandleKind::MoveY,      "Déplacer verticalement (Y) — clic + glisser"},
+            {315.0f, LayerHandleKind::MirrorX,    "Miroir horizontal (X) — clic"},
+        };
+        // Positions : mêmes calculs que la détection de clic (monde → écran
+        // via worldToScreen) — le dessin et le clic visent toujours la même
+        // poignée, malgré l'inversion de l'axe Y entre le monde (Y↑) et
+        // l'écran (Y↓). Avant ancrage, le centre de l'anneau est le curseur.
+        const float rw = kScaleR / std::max(app.camera.zoom, 1e-3f);
+        const Vec2 wc = ringAnchored
+                            ? ringAnchor
+                            : app.camera.screenToWorld({mp.x - pos.x, mp.y - pos.y}, vps);
+        for (const RingSlot& s : slots) {
+            const float rad = s.deg * kPiF / 180.0f;
+            const Vec2 wp{wc.x + std::cos(rad) * rw, wc.y + std::sin(rad) * rw};
+            const Vec2 sp = app.camera.worldToScreen(wp, vps);
+            const float px = pos.x + sp.x;
+            const float py = pos.y + sp.y;
             const bool hover = std::sqrt((mp.x - px) * (mp.x - px) +
-                                         (mp.y - py) * (mp.y - py)) < 14.0f;
-            const ImU32 col = hover ? IM_COL32(90, 240, 130, 255)
-                                    : IM_COL32(90, 240, 130, 170);
-            const float s = hover ? 9.0f : 7.0f;
-            // Grande flèche triangulaire pointant vers l'extérieur
-            dl->AddTriangleFilled(
-                ImVec2(px + cs * s * 2.5f, py + sn * s * 2.5f),
-                ImVec2(px - cs * s * 0.5f + sn * s, py - sn * s * 0.5f - cs * s),
-                ImVec2(px - cs * s * 0.5f - sn * s, py - sn * s * 0.5f + cs * s), col);
+                                         (mp.y - py) * (mp.y - py)) < 11.0f;
+            const bool isX = s.kind == LayerHandleKind::ScaleX;
+            if (s.kind == LayerHandleKind::ScaleX ||
+                s.kind == LayerHandleKind::ScaleY) {
+                // Carreau cyan (X) / ambre (Y)
+                const ImU32 col = hover ? (isX ? IM_COL32(120, 235, 255, 255)
+                                               : IM_COL32(255, 205, 120, 255))
+                                        : (isX ? IM_COL32(120, 235, 255, 160)
+                                               : IM_COL32(255, 205, 120, 160));
+                const float hs = hover ? 7.5f : 6.0f;
+                dl->AddRectFilled(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs), col);
+                dl->AddRect(ImVec2(px - hs, py - hs), ImVec2(px + hs, py + hs),
+                            IM_COL32(255, 255, 255, 100));
+            } else if (s.kind == LayerHandleKind::ScaleBoth) {
+                // Diamant blanc (échelle uniforme)
+                const ImU32 col = hover ? IM_COL32(255, 255, 255, 255)
+                                        : IM_COL32(255, 255, 255, 160);
+                const float hs = hover ? 6.5f : 5.0f;
+                dl->AddQuadFilled(ImVec2(px, py - hs), ImVec2(px + hs, py),
+                                  ImVec2(px, py + hs), ImVec2(px - hs, py), col);
+                dl->AddQuad(ImVec2(px, py - hs), ImVec2(px + hs, py),
+                            ImVec2(px, py + hs), ImVec2(px - hs, py),
+                            IM_COL32(255, 255, 255, 100));
+            } else if (s.kind == LayerHandleKind::MoveX ||
+                       s.kind == LayerHandleKind::MoveY) {
+                // Flèche verte pointant vers l'extérieur (déplacement contraint)
+                const float cs = std::cos(rad), sn = std::sin(rad);
+                const ImU32 col = hover ? IM_COL32(90, 240, 130, 255)
+                                        : IM_COL32(90, 240, 130, 170);
+                const float sz = hover ? 8.0f : 6.5f;
+                dl->AddTriangleFilled(
+                    ImVec2(px + cs * sz * 2.5f, py + sn * sz * 2.5f),
+                    ImVec2(px - cs * sz * 0.5f + sn * sz, py - sn * sz * 0.5f - cs * sz),
+                    ImVec2(px - cs * sz * 0.5f - sn * sz, py - sn * sz * 0.5f + cs * sz), col);
+                if (hover)
+                    dl->AddTriangle(
+                        ImVec2(px + cs * sz * 2.5f, py + sn * sz * 2.5f),
+                        ImVec2(px - cs * sz * 0.5f + sn * sz, py - sn * sz * 0.5f - cs * sz),
+                        ImVec2(px - cs * sz * 0.5f - sn * sz, py - sn * sz * 0.5f + cs * sz),
+                        IM_COL32(255, 255, 255, 130));
+            } else {
+                // Symétrie : pastille rouge (clic instantané)
+                const ImU32 col = hover ? IM_COL32(245, 95, 95, 255)
+                                        : IM_COL32(245, 95, 95, 180);
+                dl->AddCircleFilled(ImVec2(px, py), hover ? 8.0f : 7.0f, col);
+                if (hover)
+                    dl->AddCircle(ImVec2(px, py), 9.5f, IM_COL32(255, 255, 255, 160));
+            }
             if (hover) {
                 ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                dl->AddTriangle(
-                    ImVec2(px + cs * s * 2.5f, py + sn * s * 2.5f),
-                    ImVec2(px - cs * s * 0.5f + sn * s, py - sn * s * 0.5f - cs * s),
-                    ImVec2(px - cs * s * 0.5f - sn * s, py - sn * s * 0.5f + cs * s),
-                    IM_COL32(255, 255, 255, 130));
-                ImGui::SetTooltip(i == 0 || i == 2 ? "Déplacer horizontalement (X) — clic + glisser"
-                                                   : "Déplacer verticalement (Y) — clic + glisser");
+                ImGui::SetTooltip("%s", s.tip);
             }
         }
     }
@@ -1932,7 +2019,7 @@ void layerPopup(App& app) {
     ImGui::Separator();
 
     // Manipulation au canvas : bouton unifié (anneau autour du curseur avec
-    // poignées de déplacement, rotation, échelle et symétrie).
+    // une poignée par action : déplacement, rotation, échelle et symétries).
     ImGui::TextDisabled("Manipulation au canvas (anneau de poignées) :");
     const float bw = dialogBtnWidth({"Manipuler", "Ajuster", "Retirer"});
     if (toolBtnIcon("grab",
@@ -1940,26 +2027,10 @@ void layerPopup(App& app) {
                         ? "Manipulation du calque armée — anneau de poignées visible "
                           "au canvas · clic pour ancrer · clic droit ou Échap : désarmer"
                         : "Manipuler le calque — active l'anneau de poignées autour "
-                          "du curseur (déplacement, rotation, échelle) · "
+                          "du curseur (déplacement, rotation, échelle, symétries) · "
                           "clic droit ou Échap : désarmer",
                     app.layerArmed, kGreen, false, "Manipuler", bw))
         app.toggleLayerMode();
-    ImGui::Separator();
-
-    // Symétries : actions instantanées (miroir X, Y ou les deux).
-    ImGui::TextDisabled("Symétries (clics instantanés) :");
-    const float symW = dialogBtnWidth({"Miroir X", "Miroir Y", "Miroir X/Y"});
-    if (toolBtnIcon("mirror-x", "Retourner le calque horizontalement (miroir X)",
-                    false, kGreen, false, "Miroir X", symW))
-        app.applyLayerSymmetry(LayerHandleKind::MirrorX);
-    ImGui::SameLine();
-    if (toolBtnIcon("mirror-y", "Retourner le calque verticalement (miroir Y)",
-                    false, kGreen, false, "Miroir Y", symW))
-        app.applyLayerSymmetry(LayerHandleKind::MirrorY);
-    ImGui::SameLine();
-    if (toolBtnIcon("mirror-both", "Retourner le calque horizontalement et verticalement",
-                    false, kGreen, false, "Miroir X/Y", symW))
-        app.applyLayerSymmetry(LayerHandleKind::MirrorBoth);
     ImGui::Separator();
 
     // Opacité du calque : exprimée de 0 à 100 % avec un incrément de 1 (une
@@ -2295,6 +2366,7 @@ void helpWindow(App& app) {
         ImGui::BulletText("Accueil : tout afficher · Ctrl+F : cadrer la sélection (zoom automatique)");
         ImGui::BulletText("Formes : C cercle · R rectangle · T triangle · Q carré · N pentagone · H hexagone · É étoile · A anneau · O couronne · D découpe (polygone soustrait)");
         ImGui::BulletText("Ctrl+D : dupliquer la sélection · Ctrl+A : tout sélectionner · Ctrl+I : inverser la sélection");
+        ImGui::BulletText("Sélection chaînée (bouton du paquet Sélection) : tous les éléments liés à la sélection — triangles par ≥ 1 sommet partagé, segments par un sommet partagé, sommets par un segment (Ctrl ou Maj : ajouter, sinon remplacer)");
         ImGui::BulletText("M / Maj+M : miroir X / Y de la sélection · Alt+S : mise à l'échelle précise (facteur)");
         ImGui::BulletText("Ctrl+M : outil mesure (2 clics : distance au HUD) · Alt+D : dupliquer le plan actif");
         ImGui::BulletText("Maj+G : aimantation sur la grille sans son affichage (ou l'inverse)");
@@ -2310,19 +2382,21 @@ void helpWindow(App& app) {
         ImGui::TextUnformatted("Souris");
         ImGui::BulletText("Clic gauche (vide) : poser un point — 3 clics ferment un triangle");
         ImGui::BulletText("Clic gauche (entité) : sélectionner · Maj+clic : basculer");
+        ImGui::BulletText("Clic cyclique (cible triangle) : quand plusieurs faces se superposent au même endroit, re-cliquer sélectionne la face suivante en dessous — pour atteindre les triangles cachés d'un ensemble (5.12) · Maj : ajouter/retirer la face choisie · un clic ailleurs repart de la face du dessus");
         ImGui::BulletText("Pinceau : clic gauche peint le triangle survolé — ou tous les triangles sélectionnés (cible « triangle »)");
         ImGui::BulletText("Pipette (bouton du paquet Outils) : un clic gauche sur le canvas prélève la couleur affichée (faces, calque d'image, fond…) et la pose comme couleur de pinceau · clic droit ou Échap : désarmer");
         ImGui::BulletText("Clic gauche + glisser : rectangle de sélection (ne déplace jamais)");
         ImGui::BulletText("Lasso (bouton du paquet Sélection) : tracer librement autour des éléments à sélectionner d'un coup — sommet par sa position, segment par son milieu, triangle par son centre · Maj au relâchement : ajouter · clic droit ou Échap : désarmer");
+        ImGui::BulletText("Opérations ensemblistes (paquet Sélection) : Mémoriser A puis Mémoriser B capturent chacun la sélection courante (cible triangle) — bouton « Booléennes » : union (A∪B), intersection (A∩B), différence (A−B) ou symétrique (A△B) · dans la zone des deux ensembles seule la géométrie du résultat reste (le reste du plan est intact), le résultat devient la sélection");
         ImGui::BulletText("Clic droit : saisir l'entité la plus proche — modes sommet / segment / triangle : l'entité devient la seule sélectionnée et se saisit aussitôt · Ctrl+clic droit : ajouter · Maj+clic droit : basculer");
         ImGui::BulletText("Clic droit + glisser : déplacer la sélection");
         ImGui::BulletText("Molette : zoom — ou rotation des points sélectionnés (≥ 2)");
         ImGui::BulletText("PNG (icône image de la barre d'outils ou de la prévisualisation) : exporter la vue actuelle en image");
         ImGui::BulletText("AltGr + molette : rotation de tous les plans autour du curseur (5° par cran)");
         ImGui::BulletText("AltGr + clic droit + glisser : déplacer tous les plans d'un même décalage");
-        ImGui::BulletText("Groupe Scène — Saisir : clic gauche + glisser déplace tous les plans · Pivoter : glisser horizontal tourne autour du point saisi · Échelle : glisser vertical agrandit (bas) / réduit (haut) — clic droit ou Échap désarme");
+        ImGui::BulletText("Groupe Scène — bouton Manipuler (anneau de poignées : une action par poignée) : cible « Sélection » / « Plan » / « Scène » (clic : changer de cible et armer · clic droit : menu) — clic gauche au canvas ancre l'anneau, puis déplacement (centre/flèches), rotation (anneau), échelle (carreaux/losange), symétries (pastilles rouges, clic) · clic droit ou Échap désarme");
         ImGui::BulletText("Groupe Scène — bouton fond : couleur du canvas (molette sur le bouton : foncer / éclaircir) · bouton réinitialiser : vider la scène (confirmation)");
-        ImGui::BulletText("Groupe Scène — bouton calque (7.7) : image de fond chargée (PNG/JPEG), enregistrée avec la scène — popup : opacité, visibilité, manipuler (déplacer / pivoter / échelle au canvas, clic droit ou Échap désarme) ; le glisser-vertical de l'outil Échelle ajuste la taille, l'horizontal la largeur (Maj : hauteur)");
+        ImGui::BulletText("Groupe Scène — bouton calque (7.7) : image de fond chargée (PNG/JPEG), enregistrée avec la scène — popup : opacité, visibilité, manipuler au canvas (anneau de poignées : une par action — déplacement, rotation, échelle, symétries — clic droit ou Échap désarme)");
         ImGui::BulletText("Clic du milieu + glisser : déplacer la vue");
         ImGui::BulletText("Molette sur un bouton actif : réglage contextuel (pas de grille, côtés, pointes de l'étoile, rayon de fusion)");
         ImGui::BulletText("Bouton Aimant de la barre d'outils : activer / désactiver l'aimantation (indépendante de l'affichage) · Maj+G : même raccourci");

@@ -3,6 +3,7 @@
 #include "io.h"
 #include "mesh.h"
 #include "renderer.h"
+#include "triangulate.h"  // SetOp pour les opérations ensemblistes (5.12)
 
 #include <imgui.h>
 
@@ -26,8 +27,10 @@ inline bool isShapeTool(Tool t) { return t != Tool::Select && t != Tool::Cut && 
 enum class ReticleState { Off, Simple, Symmetric, Mirror };
 enum class PreviewMode { Off, Simple, Planes };
 
-// Mode « Scène » (8.5) : manipulation de TOUS les plans à la souris.
-enum class SceneTool { None, Grab, Rotate, Scale };
+// Anneau de manipulation unifié des maillages : cible du ring (sélection du
+// plan actif, plan courant, ou scène complète) — même principe que le calque
+// (7.7) : une poignée par action. Remplace l'ancien mode « Scène » (8.5).
+enum class RingTarget { None, Selection, Plane, Scene };
 // Calque d'image de fond (7.7) : manipulation de l'image à la souris.
 // Poignées de l'anneau de manipulation unifié autour du curseur.
 enum class LayerHandleKind {
@@ -45,8 +48,7 @@ enum class LayerHandleKind {
 };
 
 // --- Drag en cours ---
-enum class DragKind { None, Move, MoveAll, Box, Shape, SceneGrab, SceneRotate, SceneScale,
-                      LayerHandle, Lasso };
+enum class DragKind { None, Move, MoveAll, Box, Shape, LayerHandle, MeshRing, Lasso };
 
 struct Drag {
     DragKind kind = DragKind::None;
@@ -58,12 +60,13 @@ struct Drag {
     Vec2 grabWorld{0, 0};               // point de saisie en monde (Move / MoveAll)
     Vec2 startScreen{0, 0};             // pixels, relatif au viewport (Box)
     Vec2 curScreen{0, 0};
-    // Mode scène (8.5) : ancre monde sous le curseur au début de la saisie
-    // (pivot des rotations / mises à l'échelle), écran de départ et angle de
-    // rotation cumulé affiché au HUD au début du glisser.
+    // Anneau (calque 7.7 / maillage) : ancre monde sous le curseur au début
+    // de la saisie (pivot des rotations / échelles) et écran de départ.
     Vec2 sceneAnchor{0, 0};
     Vec2 sceneStartScreen{0, 0};
-    float sceneStartDeg = 0.0f;
+    // Anneau maillage : ancre (pivot) au début de la saisie — l'anneau SUIT
+    // la cible pendant les déplacements (les poignées restent autour d'elle).
+    Vec2 ringStartAnchor{0, 0};
     // Calque d'image (7.7) : état du calque au début de la saisie (pour
     // annuler proprement et détecter un glisser sans effet).
     Vec2 layerStartCenter{0, 0};
@@ -92,17 +95,20 @@ public:
     Renderer renderer;
     SDL_Window* window = nullptr;
 
-    // --- Mode « Scène » (8.5) : manipulation de tous les plans ---
-    // Outil armé (boutons du groupe Scène) : le canvas sert alors à saisir /
-    // pivoter / redimensionner TOUS les plans ensemble ; clic droit ou Échap
-    // désarme. Wheel = zoom et clic du milieu = pan restent disponibles.
-    SceneTool sceneTool = SceneTool::None;
+    // --- Anneau de manipulation unifié des maillages (sélection / plan /
+    // scène) : même principe que le calque (7.7) — une poignée par action.
+    // Le bouton « Manipuler » du paquet Scène arme l'anneau (cible courante) ;
+    // clic droit ou Échap au canvas désarme.
+    RingTarget ringTarget = RingTarget::Selection;
+    bool ringArmed = false;
+    bool ringAnchored = false;
+    Vec2 ringAnchor{0, 0};
+    // Sensibilité de l'échelle au glisser : ×exp(0,01/px) (~×2,7 pour 100 px
+    // écran) — le facteur est proportionnel aux PIXELS glissés (décalage monde
+    // × zoom), pour une réponse identique et efficace quel que soit le zoom.
+    static constexpr float kRingScalePerPx = 0.01f;
     // Couleur de fond du canvas (bouton « fond » du groupe Scène).
     Color bgColor = kBgDefault;
-    // Sensibilités de la saisie souris (mode Scène) : 1 px horizontal = 0,4°
-    // de rotation ; échelle ×exp(0,005/px vertical) (~×1,65 pour 100 px).
-    static constexpr float kSceneDegPerPx = 0.4f;
-    static constexpr float kSceneScalePerPx = 0.005f;
 
     // --- Calque d'image de fond (7.7) ---
     // Mode unifié armé depuis le popup « Calque » : un anneau de poignées
@@ -155,6 +161,26 @@ public:
     // `inside` — partagé entre rectangle (5.1) et lasso (5.10).
     void collectSelectionInside(const std::function<bool(const Vec2&)>& inside);
 
+    // --- Opérations ensemblistes (5.12) ---
+    // Deux ensembles de triangles A et B, chacun mémorisé depuis la sélection
+    // courante (cible triangle) du plan actif au moment de la capture. Un
+    // ensemble invalide (plan changé, géométrie modifiée) est oublié : les
+    // opérations (union, intersection, différence, symétrique) se font entre
+    // les deux ensembles du MÊME plan actif.
+    std::vector<int> boolSetA, boolSetB;    // faces mémorisées
+    int boolSetAPlane = -1, boolSetBPlane = -1;  // plan d'origine de chaque ensemble
+    void memorizeBoolSet(int which);        // 0 = A, 1 = B : capture la sélection courante
+    void clearBoolSets();
+    // Applique l'opération ensembliste entre les deux ensembles mémorisés : le
+    // résultat (découpé aux arêtes de l'autre ensemble) devient la sélection
+    // triangle du plan actif — dans la zone de A∪B, seule la géométrie du
+    // résultat est conservée (le reste du plan est intact).
+    void applyBoolOp(SetOp op);
+    // Vrai si l'ensemble (0 = A, 1 = B) est mémorisé et toujours valide.
+    bool boolSetValid(int which) const;
+    // Nombre de faces mémorisées de l'ensemble (0 = A, 1 = B).
+    size_t boolSetCount(int which) const { return which == 0 ? boolSetA.size() : boolSetB.size(); }
+
     // --- Sélection & outils ---
     SelMode selMode = SelMode::Vertex;
     Tool tool = Tool::Select;
@@ -171,6 +197,14 @@ public:
     // Distance (pixels écran) de détection des sommets (survol + sélection en
     // mode « sommet »). Réglable dans le panneau « Réglages ».
     float vertexPickTol = 8.0f;
+
+    // --- Clic cyclique dans la pile de faces superposées (5.13) ---
+    // Quand plusieurs faces se chevauchent sous le curseur, chaque clic au
+    // même endroit sélectionne la face suivante en dessous. La position écran
+    // du dernier clic (et la face alors choisie) décide de la suite de la
+    // descente ; un clic ailleurs ou sur une zone sans face réinitialise.
+    int lastFaceClick_ = -1;
+    Vec2 lastFaceClickScreen_{-1e9f, -1e9f};
 
     // --- Construction de triangle (4.1) : sommets partiels en cours ---
     int triP1 = -1;
@@ -387,6 +421,11 @@ public:
     // Inverse la sélection du plan actif (Ctrl+I) : les éléments non
     // sélectionnés deviennent sélectionnés et réciproquement.
     void invertSelection();
+    // Sélection chaînée (5.11) : sélectionne tous les éléments du plan actif
+    // liés à la sélection courante par des chaînes d'adjacence — triangles par
+    // au moins un sommet partagé, segments par un sommet partagé, sommets par
+    // un segment. Ctrl ou Maj enfoncés : ajoute à la sélection, sinon remplace.
+    void selectLinked();
     void cycleTarget();
     void cycleReticle();
     void cyclePreview();
@@ -422,16 +461,50 @@ public:
     // Rotation de TOUS les plans autour du pivot (8.3, AltGr + molette).
     void rotateAllPlanesAround(const Vec2& pivot, float deg);
 
-    // --- Mode Scène (8.5) ---
-    // Arme / désarme l'outil scène (un seul outil à la fois ; re-clic sur
-    // l'outil armé = désarmer).
-    void toggleSceneTool(SceneTool t);
-    // Mise à l'échelle de TOUS les plans autour du pivot (facteur > 0).
-    void scaleAllPlanesAround(const Vec2& pivot, float factor);
-    // Saisie souris du mode scène : clic gauche = début, glisser = appliquer,
-    // relâchement = fin (une étape annulable, retirée si aucun déplacement).
-    void beginSceneDrag(const Vec2& world, const Vec2& screen);
-    void applySceneDrag(const Vec2& world, const Vec2& screen);
+    // --- Anneau de manipulation unifié des maillages ---
+    // Arme / désarme l'anneau pour la cible courante (re-clic = désarmer).
+    void toggleRingMode();
+    // Choisit la cible (boutons radio Sélection / Plan / Scène) et arme
+    // l'anneau ; None = désarmer.
+    void setRingTarget(RingTarget t);
+    // Nom lisible de la cible courante (sélection / plan courant / scène).
+    const char* ringTargetName() const;
+    // Centre (boîte englobante) de la cible du ring (sélection / plan / scène) ;
+    // false si la cible ne contient aucun sommet.
+    bool ringTargetCenter(Vec2& out) const;
+    // Ancre l'anneau au centre de la cible courante ; si la cible est vide,
+    // l'anneau reste non ancré (il suit le curseur jusqu'au premier clic).
+    void recenterRing();
+    // Saisie souris de l'anneau maillage : clic gauche = début (poignée,
+    // symétrie instantanée ou bande de rotation), glisser = appliquer,
+    // relâchement = fin (une étape annulable, retirée si aucun changement).
+    bool isMeshRingDragging() const { return drag_.kind == DragKind::MeshRing; }
+    void beginMeshRingDrag(const Vec2& world, const Vec2& screen);
+    void applyMeshRingDrag(const Vec2& world);
+    void endMeshRingDrag();
+    // Symétrie instantanée de la cible autour de l'anneau (miroir X, Y, X/Y).
+    void applyMeshRingMirror(LayerHandleKind kind);
+    // Mémorise les sommets de départ de la cible (false si rien à manipuler).
+    bool snapshotMeshRingTarget();
+    // Applique `fn` à chaque sommet de la cible courante (positions restaurées).
+    template <typename Fn>
+    void eachRingVertex(Fn fn) {
+        switch (ringTarget) {
+            case RingTarget::Scene:
+                for (Mesh2D& p : scene.planes)
+                    for (Vec2& v : p.vertices) fn(v);
+                break;
+            case RingTarget::Plane:
+                for (Vec2& v : scene.activePlane().vertices) fn(v);
+                break;
+            case RingTarget::Selection:
+                for (int v : drag_.movingVerts)
+                    if (v >= 0 && (size_t)v < scene.activePlane().vertices.size())
+                        fn(scene.activePlane().vertices[v]);
+                break;
+            default: break;
+        }
+    }
 
     // --- Calque d'image (7.7) ---
     void toggleLayerMode();              // arme / désarme le mode calque unifié
@@ -439,9 +512,10 @@ public:
     void beginLayerDrag(const Vec2& world, const Vec2& screen);
     void applyLayerDrag(const Vec2& world, const Vec2& screen);
     void endLayerDrag();
-    // Poignées monde de l'anneau autour de layerAnchor (pour le rendu + survol).
-    void layerRingHandles(std::vector<LayerHandleKind>& kinds,
-                          std::vector<Vec2>& worldPos) const;
+    // Poignées monde de l'anneau autour du point donné (rendu + détection au
+    // clic) : une poignée par action, sur le cercle de 40 px écran.
+    void ringHandlePositions(const Vec2& c, std::vector<LayerHandleKind>& kinds,
+                             std::vector<Vec2>& worldPos) const;
     // Charge le fichier image (PNG/JPEG) : décode, crée la texture, dimensionne
     // le calque à ~la moitié de la vue. Échec → statut + false (calque intact).
     bool loadImageLayer(const std::string& path);
@@ -452,15 +526,7 @@ public:
     // Réajuste la taille du calque à ~la moitié de la vue (une étape annulable).
     void fitLayerToView();
 
-    void endSceneDrag();
-    bool isSceneDragging() const {
-        return drag_.kind == DragKind::SceneGrab || drag_.kind == DragKind::SceneRotate ||
-               drag_.kind == DragKind::SceneScale;
-    }
-    // Pivot (monde) de la saisie en cours — repère visuel au canvas.
-    Vec2 sceneDragPivot() const { return drag_.sceneAnchor; }
-    // Écran de départ de la saisie — valeur en direct affichée au canvas.
-    Vec2 sceneDragStartScreen() const { return drag_.sceneStartScreen; }
+
 
     // --- Presse-papiers ---
     void copySelection();
@@ -468,7 +534,20 @@ public:
     void pasteClipboard();
 
     // --- Peinture ---
+    // Face la plus haute sous `world` (celle dessinée en dernier, qui
+    // recouvre les autres). Les autres usages de sélection (clic cyclique
+    // 5.13) passent par pickFaces, qui renvoie TOUTE la pile.
     int pickFace(const Vec2& world) const;
+    // Toutes les faces contenant `world`, de la plus haute (dessus, dessinée
+    // en dernier) à la plus basse. Le clic cyclique (5.13) descend dans cette
+    // pile : chaque clic au même endroit sélectionne la face suivante en
+    // dessous — indispensable pour les ensembles qui se chevauchent (5.12).
+    std::vector<int> pickFaces(const Vec2& world) const;
+    // Clic cyclique (5.13) : la face à sélectionner sous `world` — la plus
+    // haute au premier clic, puis chaque clic au même endroit écran descend
+    // d'un cran dans la pile (retour en haut après la plus basse). Met à jour
+    // lastFaceClick_ / lastFaceClickScreen_ ; renvoie -1 hors de toute face.
+    int cyclePickFace(const Vec2& world, const Vec2& screen);
     void paintFace(int fi);
     // Peint plusieurs faces d'un coup (6.2 : toutes les faces sélectionnées
     // sont peintes, sinon seule la face cliquée l'est).
@@ -594,7 +673,9 @@ private:
 
     // Sélection clic droit
     bool pickNearestOnly(const Vec2& world);
-    void addEntityToSelection(const Vec2& world);
+    // Ctrl+clic droit : ajoute l'entité sous le curseur sans déplacer. `screen`
+    // sert au clic cyclique des faces superposées (5.13), comme le clic gauche.
+    void addEntityToSelection(const Vec2& world, const Vec2& screen);
 };
 
 }  // namespace mesh

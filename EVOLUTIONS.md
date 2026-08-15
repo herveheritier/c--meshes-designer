@@ -26,6 +26,98 @@ Ce fichier est le **journal des évolutions** de l'application. Il contient deux
 
 ## Effectuées
 
+- 2026-08-13 (à venir) - Clic cyclique dans la pile de faces superposées
+  (cible « triangle ») : quand plusieurs faces se chevauchent au même endroit,
+  chaque clic au même endroit sélectionne la face **suivante en dessous**
+  (retour en haut après la plus basse), un clic ailleurs repart de la face du
+  dessus, Maj ajoute/retire la face choisie — le survol signale l'empilement et
+  la barre d'état donne la position dans la pile. Fini l'impossibilité de
+  sélectionner les triangles cachés d'un ensemble pour les opérations
+  ensemblistes (5.12) : les deux ensembles peuvent se chevaucher entièrement.
+- 2026-08-13 (à venir) - Opérations ensemblistes entre **deux ensembles de
+  triangles** : les boutons « Mémoriser A » / « Mémoriser B » du paquet
+  Sélection capturent chacun la sélection courante (cible triangle), puis
+  quatre opérations booléennes géométriques combinent les deux ensembles —
+  **union (A ∪ B)**, **intersection (A ∩ B)**, **différence (A − B)** et
+  **différence symétrique (A △ B)**. Chaque ensemble est traité comme une
+  **région polygonale** et les régions sont combinées **par leur frontière**
+  (arêtes de frontière découpées aux intersections, classification de part et
+  d'autre, trous gérés), puis le résultat est **triangulé une seule fois à la
+  fin** : la triangulation est **minimale** — pas de coutures internes ni de
+  fragments le long des diagonales internes des ensembles (l'ancien découpage
+  en cellules sur-triangulait et laissait dans une différence A−B les faces de
+  B entièrement recouvertes par A). Les chevauchements partiels sont gérés, la
+  couleur de chaque triangle du résultat est reprise de la face source qu'il
+  recouvre et, dans la zone des deux ensembles, **seule la géométrie du
+  résultat est conservée** (les restes sont retirés du plan, le reste du plan
+  est intact) ; le résultat devient la sélection triangle du plan actif. Un
+  ensemble est oublié si le plan actif ou la géométrie change (annuler /
+  rétablir inclus) ; l'opération est annulable.
+- 2026-08-13 (à venir) - Échelles X/Y de l'anneau : **rétrécissement généreux**
+  piloté par la distance du curseur au **centre** de l'anneau — le module
+  décroît proportionnellement en glissant vers l'intérieur (quasi nul au
+  centre, seuil au centre et non au point de saisie), sans saut à la saisie ;
+  l'agrandissement vers l'extérieur garde la réponse exponentielle en pixels.
+- 2026-08-13 (à venir) - L'anneau de manipulation (maillages et calque)
+  **suit la cible pendant les déplacements** : en glissant le centre ou les
+  flèches, l'ancre se déplace d'autant et les poignées restent autour de la
+  cible (auparavant l'anneau restait en place et la cible s'éloignait). Le
+  pivot des rotations / échelles suit donc le déplacement.
+- 2026-08-13 (à venir) - Échelle de l'anneau de manipulation plus efficace :
+  le facteur d'échelle (X, Y, uniforme) est désormais proportionnel aux
+  **pixels glissés** (décalage monde × zoom) au lieu des unités monde — la
+  réponse est identique quel que soit le zoom (auparavant faible zoomé,
+  excessive dézoomé) et le coefficient passe de ×exp(0,005/px) à ×exp(0,01/px)
+  (~×2,7 pour 100 px). L'échelle **uniforme** utilise une distance radiale
+  signée le long de la direction d'ouverture du point de saisie : glisser vers
+  l'intérieur **rétrécit** (la distance seule, toujours positive, ne permettait
+  que d'agrandir). Même correction pour les poignées d'échelle du calque
+  (7.7), inchangées au zoom 1.
+- 2026-08-13 (à venir) - La cible de l'anneau de manipulation des maillages
+  est choisie par **trois boutons radio** du paquet Scène — un par cible
+  (Sélection / Plan / Scène) : la cible active est mise en évidence et
+  **désactive les autres**. Clic sur une cible : arme l'anneau pour cette
+  cible ; re-clic sur la cible active : désarme. Le bouton unique à libellé
+  cyclant et son menu contextuel sont retirés (cycleRingTarget supprimé). Le
+  bouton « Plan » utilise l'icône duplicate-plane (l'icône layer, réservée au
+  bouton Calque, provoquait un conflit d'ID ImGui dans le même paquet).
+- 2026-08-13 (à venir) - L'anneau de manipulation des maillages (sélection /
+  plan / scène) s'arme **au centre de la cible** (centre de la boîte
+  englobante) au lieu de suivre le curseur : dès l'armement, les poignées sont
+  prêtes autour de la sélection / du plan / de la scène. Un **clic gauche**
+  ailleurs déplace l'anneau (pivot libre) ; si la cible est vide (ex.
+  sélection vide), l'anneau suit encore le curseur jusqu'au premier clic.
+  Statuts, infobulles et documentation (8.5) mis à jour.
+- 2026-08-13 (à venir) - Anneau de manipulation unifié étendu aux maillages :
+  le même anneau de poignées que le calque (une poignée par action) manipule
+  désormais la **sélection** du plan actif, le **plan courant** ou la **scène
+  complète** — bouton « Manipuler » du paquet Scène (cible affichée en
+  libellé : clic = changer de cible et armer, clic droit = menu + désarmer).
+  Déplacement (centre/flèches), rotation (anneau), échelle X/Y/uniforme
+  (carreaux/losange) autour du point d'ancrage, symétries instantanées
+  (pastilles rouges). Le mode Scène à trois boutons (saisir / pivoter /
+  redimensionner) est retiré (8.5 réécrit, préférence sceneTool supprimée) :
+  une seule façon de manipuler chaque chose. Chaque geste est annulable, un
+  clic sans glisser ne crée rien, clic droit ou Échap désarme.
+- 2026-08-13 (à venir) - Anneau de manipulation du calque sans redondance :
+  **une seule poignée par action** au lieu de poignées répétées (l'échelle X,
+  l'échelle Y, l'échelle uniforme et le déplacement X/Y occupaient 2 à 4
+  poignées chacune, la rotation était en double). Le cercle de 40 px accueille
+  désormais 8 poignées distinctes : échelle X (cyan, E), échelle Y (ambre, N),
+  échelle uniforme (losange blanc, NE), déplacement X/Y (flèches vertes, W/S)
+  et symétries (pastilles rouges, clic instantané : miroir X/Y/X-Y, SE/NW/SW) ;
+  la rotation est la bande annulaire de l'anneau lui-même. Les boutons Miroir
+  du popup Calque sont retirés (chaque action n'est présente qu'une seule fois),
+  documentation (7.7) mise à jour.
+- 2026-08-12 (à venir) - Sélection chaînée : un bouton du paquet Sélection
+  sélectionne, à partir de la sélection courante, **tous les éléments qui lui
+  sont liés par des chaînes d'adjacence** — selon la cible active : triangles
+  liés par **au moins un sommet partagé**, segments par un sommet partagé,
+  sommets reliés par un segment. Le clic **remplace** la sélection par
+  l'ensemble chaîné ; avec **Ctrl ou Maj** enfoncés, il **ajoute** les
+  éléments chaînés à la sélection. Sans sélection, rien n'est sélectionné (un
+  message l'indique). Icône linked.svg, entrée dans le menu contextuel du
+  bouton de sélection et dans l'aide, documentation (5.11) mise à jour.
 - 2026-08-12 (5f6c54c) - Prévisualisation « Plans » sans contours : dans le
   mode œil, l'état « tous les plans » rend les plans remplis de leurs couleurs
   sans tracer de contours — ni périmètre des plans, ni arêtes internes des
